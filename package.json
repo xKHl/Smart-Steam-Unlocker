@@ -1,6 +1,6 @@
 {
   "name": "smart-steam-unlocker",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "A smart local Steam Achievement Unlocker desktop application with delay timer logic",
   "main": "electron/main.js",
   "scripts": {

@@ -10,6 +10,7 @@ const { ipcMain, BrowserWindow, app } = require('electron');
 const steamManager  = require('../steamManager');
 const settingsStore = require('../settingsStore');
 const humanizedService = require('../humanizedService');
+const { orderAchievements } = require('../humanized/ordering');
 
 // In-memory cache for the owned-games response (valid 5 minutes)
 let _libraryCache     = null;
@@ -134,6 +135,11 @@ function registerIpcHandlers() {
 
   // ─── Humanized Scheduler (mock execution adapter only) ────────────────────
   ipcMain.handle('humanized:get-status', () => humanizedService.getStatus());
+  // Renderer display ordering deliberately delegates to the same canonical
+  // normalization and ordering implementation used by schedule generation.
+  ipcMain.handle('humanized:order-achievements', (_e, { achievements, orderMode }) =>
+    orderAchievements(Array.isArray(achievements) ? achievements : [], orderMode)
+  );
   ipcMain.handle('humanized:create', (_e, payload) => humanizedService.create(payload));
   ipcMain.handle('humanized:replace', (_e, payload) => humanizedService.replace(payload));
   ipcMain.handle('humanized:start', () => humanizedService.start());

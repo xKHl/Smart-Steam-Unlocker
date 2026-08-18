@@ -37,6 +37,8 @@ export default function Achievements({ selectedGame, onChangeGame }) {
   const [useFixedTime, setUseFixedTime] = useState(false);
   const [fixedMins, setFixedMins] = useState(1);
   const [unlockMode, setUnlockMode] = useState('instant');
+  const [humanizedOrderMode, setHumanizedOrderMode] = useState('original');
+  const [humanizedOrderedIds, setHumanizedOrderedIds] = useState(null);
 
   // ── Initialization ──────────────────────────────────────────────────────
   useEffect(() => {
@@ -60,14 +62,15 @@ export default function Achievements({ selectedGame, onChangeGame }) {
             const pctMap = {};
             pctRes.percentages.forEach(p => { pctMap[p.name] = p.percent; });
             
-            merged = merged.map(a => ({
-              ...a,
-              globalPercent: pctMap[a.id] !== undefined ? pctMap[a.id] : 0
-            }));
+            merged = merged.map(a => (
+              pctMap[a.id] !== undefined
+                ? { ...a, globalPercent: pctMap[a.id] }
+                : a
+            ));
           }
 
           // Auto-Sort logic: Strictly chronological using the internal schema index
-          merged.sort((a, b) => {
+          merged = [...merged].sort((a, b) => {
              const indexA = a.originalIndex ?? 0;
              const indexB = b.originalIndex ?? 0;
              return indexA - indexB;
@@ -136,8 +139,36 @@ export default function Achievements({ selectedGame, onChangeGame }) {
   }, [selectedGame]);
 
   // ── Derived State ───────────────────────────────────────────────────────
+  // Humanized display order is fetched from the main-process canonical ordering
+  // module. This changes presentation only; the persisted schedule is never read
+  // or rewritten when the user changes this selector.
+  useEffect(() => {
+    let cancelled = false;
+    if (unlockMode !== 'humanized' || !window.steamAPI?.humanized?.orderAchievements) {
+      setHumanizedOrderedIds(null);
+      return () => { cancelled = true; };
+    }
+
+    window.steamAPI.humanized.orderAchievements(achievements, humanizedOrderMode)
+      .then((ordered) => {
+        if (!cancelled) setHumanizedOrderedIds(Array.isArray(ordered) ? ordered.map((achievement) => achievement.id) : []);
+      })
+      .catch(() => {
+        // Preserve a safe original-order view if the display-only bridge is unavailable.
+        if (!cancelled) setHumanizedOrderedIds(null);
+      });
+
+    return () => { cancelled = true; };
+  }, [achievements, humanizedOrderMode, unlockMode]);
+
+  const achievementDisplaySource = useMemo(() => {
+    if (unlockMode !== 'humanized' || !humanizedOrderedIds) return achievements;
+    const byId = new Map(achievements.map((achievement) => [achievement.id, achievement]));
+    return humanizedOrderedIds.map((id) => byId.get(id)).filter(Boolean);
+  }, [achievements, humanizedOrderedIds, unlockMode]);
+
   const displayedAchievements = useMemo(() => {
-    let list = achievements;
+    let list = achievementDisplaySource;
     const q = search.trim().toLowerCase();
     if (q) list = list.filter(a => (a.name || a.id).toLowerCase().includes(q));
     
@@ -145,7 +176,7 @@ export default function Achievements({ selectedGame, onChangeGame }) {
     if (filter === 'Unlocked') list = list.filter(a => a.unlocked);
     
     return list;
-  }, [achievements, search, filter]);
+  }, [achievementDisplaySource, search, filter]);
 
   // Set of IDs currently in the queue
   const queueIds = useMemo(() => new Set(timerStatus.queue.map(q => q.id)), [timerStatus.queue]);
@@ -390,6 +421,8 @@ export default function Achievements({ selectedGame, onChangeGame }) {
               selectedGame={selectedGame}
               achievements={achievements}
               selectedIds={selectedIds}
+              orderMode={humanizedOrderMode}
+              onOrderModeChange={setHumanizedOrderMode}
               onScheduleCreated={() => setSelectedIds(new Set())}
             />
           )}

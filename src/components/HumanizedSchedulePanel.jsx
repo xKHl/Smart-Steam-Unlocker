@@ -19,9 +19,8 @@ function statusLabel(status) {
   return String(status || 'pending').replace(/-/g, ' ');
 }
 
-export default function HumanizedSchedulePanel({ selectedGame, achievements, selectedIds, onScheduleCreated }) {
+export default function HumanizedSchedulePanel({ selectedGame, achievements, selectedIds, orderMode, onOrderModeChange, onScheduleCreated }) {
   const [status, setStatus] = useState({ schedule: null, summary: null, adapter: 'steam' });
-  const [orderMode, setOrderMode] = useState('original');
   const [seed, setSeed] = useState('humanized-schedule');
   const [error, setError] = useState('');
   const [isWorking, setIsWorking] = useState(false);
@@ -105,7 +104,7 @@ export default function HumanizedSchedulePanel({ selectedGame, achievements, sel
             <label className="timer-slider-label" htmlFor="humanized-order">
               <span>Deterministic order</span>
             </label>
-            <select id="humanized-order" className="search-input" value={orderMode} onChange={(event) => setOrderMode(event.target.value)} disabled={isWorking}>
+            <select id="humanized-order" className="search-input" value={orderMode} onChange={(event) => onOrderModeChange(event.target.value)} disabled={isWorking}>
               {ORDER_OPTIONS.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}
             </select>
           </div>
