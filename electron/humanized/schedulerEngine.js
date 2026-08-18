@@ -192,6 +192,7 @@ function normalizeVerificationResult(result) {
   const verification = result?.verification ?? VERIFICATION.UNCERTAIN;
   return {
     verification,
+    retryable: Boolean(result?.retryable),
     error: result?.error ?? null,
   };
 }
@@ -415,9 +416,9 @@ function createScheduler({ executor, verifier, persist = () => true, now = () =>
       item.recoveryPending = false;
       item.interruptedExecutionToken = null;
       item.lastError = null;
-    } else if (verificationResult.verification === VERIFICATION.UNVERIFIED && item.recoveryPending) {
-      // Recovery has confirmed the interrupted attempt did not complete. The item
-      // may now be retried, but remains paused until the caller explicitly resumes.
+    } else if (verificationResult.verification === VERIFICATION.UNVERIFIED && (item.recoveryPending || verificationResult.retryable)) {
+      // Verified non-completion permits a controlled retry, but it remains paused
+      // until the caller explicitly resumes. Recovery never skips this barrier.
       item.status = ITEM_STATUS.RETRY;
       item.recoveryPending = false;
       item.interruptedExecutionToken = null;
@@ -499,7 +500,7 @@ function createScheduler({ executor, verifier, persist = () => true, now = () =>
           const validation = await executor.validateContext(executionContext);
           if (validation === false || validation?.valid === false) {
             executionResult = {
-              outcome: 'failed',
+              outcome: validation?.outcome || 'failed',
               error: validation?.error || 'Execution context was rejected before execution.',
               raw: validation ?? null,
               context: clone(executionContext),

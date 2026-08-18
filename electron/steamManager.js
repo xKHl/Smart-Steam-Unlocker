@@ -220,6 +220,10 @@ function shutdown() {
 /**
  * Returns Steam connection status.
  */
+function getSelectedAppId() {
+  return settingsStore.get('selectedGame')?.appId ?? null;
+}
+
 function getStatus() {
   // If we have verified handshake data, we are fully connected
   if (steamIsAvailable) {
@@ -257,7 +261,7 @@ function buildAchievementIconUrl(appId, hash) {
   return `https://steamcdn-a.akamaihd.net/steamcommunity/public/images/apps/${appId}/${hash}.jpg`;
 }
 
-async function getAchievements(appId, apiKey, steamId) {
+async function getAchievements(appId, apiKey, steamId, { includeOptimisticCache = true } = {}) {
   if (!apiKey || !steamId) {
     return { success: false, achievements: [], error: 'NO_API_KEY_OR_STEAM_ID' };
   }
@@ -287,11 +291,14 @@ async function getAchievements(appId, apiKey, steamId) {
       unlockedMap[pa.apiname] = pa.achieved === 1;
     }
 
-    // Merge local optimistic cache (for immediate persistence across app restarts before Steam API updates)
-    const cacheKey = `unlocked_cache_${appId}`;
-    const optimisticCache = settingsStore.get(cacheKey) || [];
-    for (const id of optimisticCache) {
-      unlockedMap[id] = true;
+    // UI reads may merge local optimistic cache while a remote API update is pending.
+    // Safety verification must bypass this cache and inspect the remote read result.
+    if (includeOptimisticCache) {
+      const cacheKey = `unlocked_cache_${appId}`;
+      const optimisticCache = settingsStore.get(cacheKey) || [];
+      for (const id of optimisticCache) {
+        unlockedMap[id] = true;
+      }
     }
 
     const achievements = schemaAchievements.map((sa, index) => {
@@ -325,14 +332,24 @@ async function getAchievements(appId, apiKey, steamId) {
  *   - initialized is ALWAYS set to false in the finally block.
  *   - A single unlock never leaves Steamworks running.
  */
-async function unlockAchievement(achievementId) {
-  // We determine the active AppID from the settings store
+async function unlockAchievement(achievementId, expectedAppId = null) {
+  // Instant mode leaves expectedAppId unset. Humanized mode supplies its immutable
+  // schedule App ID and must never be redirected by mutable selected-game state.
   const selectedGame = settingsStore.get('selectedGame');
   if (!selectedGame || !selectedGame.appId) {
-    return { success: false, achievementId, error: 'No game selected' };
+    return { success: false, achievementId, error: 'No game selected', errorCode: 'NO_SELECTED_GAME' };
   }
 
   const targetAppId = selectedGame.appId;
+  if (expectedAppId !== null && expectedAppId !== undefined && String(targetAppId) !== String(expectedAppId)) {
+    return {
+      success: false,
+      achievementId,
+      appId: targetAppId,
+      error: `Selected App ID ${targetAppId} does not match expected App ID ${expectedAppId}.`,
+      errorCode: 'APP_ID_MISMATCH',
+    };
+  }
   // console.log(`[SteamManager] Lazy unlocking "${achievementId}" for AppID ${targetAppId}...`);
 
   // Ensure any previous session is fully dead before we begin
@@ -347,7 +364,9 @@ async function unlockAchievement(achievementId) {
 
   let localClient = null;
   let success = false;
+  let activationMayHaveApplied = false;
   let errorMsg = null;
+  let errorCode = null;
 
   try {
     // 1. Initialize Steamworks for this single operation
@@ -359,6 +378,7 @@ async function unlockAchievement(achievementId) {
     // 2. Perform the unlock
     const activated = localClient.achievement.activate(achievementId);
     if (activated) {
+      activationMayHaveApplied = true;
       localClient.achievement.store();
       // console.log(`[SteamManager] ✓ Unlocked: ${achievementId}`);
       success = true;
@@ -379,10 +399,12 @@ async function unlockAchievement(achievementId) {
       });
     } else {
       errorMsg = 'Activation returned false';
+      errorCode = 'ACTIVATION_REJECTED';
       // console.error(`[SteamManager] ✗ Activate returned false for: ${achievementId}`);
     }
   } catch (err) {
     errorMsg = err.message;
+    errorCode = activationMayHaveApplied ? 'OPERATION_UNCERTAIN' : 'STEAM_EXECUTION_FAILED';
     // console.error(`[SteamManager] ✗ Unlock threw for ${achievementId}:`, err.message);
   } finally {
     // ── GUARANTEED CLEANUP ──────────────────────────────────────────────────
@@ -404,10 +426,58 @@ async function unlockAchievement(achievementId) {
   }
 
   if (success) {
-    return { success: true, achievementId };
+    return { success: true, achievementId, appId: targetAppId };
   } else {
-    return { success: false, achievementId, error: errorMsg || 'Unknown error' };
+    return {
+      success: false,
+      achievementId,
+      appId: targetAppId,
+      error: errorMsg || 'Unknown error',
+      errorCode: errorCode || 'STEAM_EXECUTION_FAILED',
+      operationMayHaveApplied: activationMayHaveApplied,
+    };
   }
+}
+
+/**
+ * Reads the remote achievement state used by Humanized verification. This helper
+ * intentionally bypasses the optimistic local cache so execution success is not
+ * treated as proof until the Steam Web API reports the unlocked state.
+ */
+async function getAchievementVerification(appId, achievementId) {
+  const selectedGame = settingsStore.get('selectedGame');
+  if (!appId || !achievementId) {
+    return { success: false, appId, achievementId, error: 'App ID and achievement ID are required.', errorCode: 'INVALID_CONTEXT' };
+  }
+  if (!selectedGame?.appId || String(selectedGame.appId) !== String(appId)) {
+    return {
+      success: false,
+      appId,
+      achievementId,
+      error: `Selected App ID ${selectedGame?.appId ?? 'none'} does not match expected App ID ${appId}.`,
+      errorCode: 'APP_ID_MISMATCH',
+    };
+  }
+
+  const apiKey = settingsStore.get('steamApiKey');
+  let status = getStatus();
+  if (!status.steamId) {
+    await initSteam();
+    status = getStatus();
+  }
+  if (!apiKey || !status.steamId) {
+    return { success: false, appId, achievementId, error: 'Steam identity or Web API key is unavailable.', errorCode: 'STEAM_READ_UNAVAILABLE' };
+  }
+
+  const result = await getAchievements(appId, apiKey, status.steamId, { includeOptimisticCache: false });
+  if (!result.success) {
+    return { success: false, appId, achievementId, error: result.error || 'Steam achievement read failed.', errorCode: 'STEAM_READ_UNAVAILABLE' };
+  }
+  const achievement = result.achievements.find((candidate) => candidate.id === achievementId);
+  if (!achievement) {
+    return { success: false, appId, achievementId, error: `Achievement ${achievementId} was not found for App ID ${appId}.`, errorCode: 'ACHIEVEMENT_NOT_FOUND' };
+  }
+  return { success: true, appId, achievementId, unlocked: Boolean(achievement.unlocked) };
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -437,9 +507,11 @@ module.exports = {
   initSteam,
   shutdown,
   getStatus,
+  getSelectedAppId,
   getOwnedGames,
   switchGame,
   getAchievements,
+  getAchievementVerification,
   getGlobalAchievementPercentages,
   unlockAchievement,
 };

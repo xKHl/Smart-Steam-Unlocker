@@ -7,8 +7,8 @@
 const { BrowserWindow } = require('electron');
 const settingsStore = require('./settingsStore');
 const { operationCoordinator } = require('./operationCoordinator');
-const { createMockExecutionAdapter } = require('./humanized/mockExecutionAdapter');
-const { createMockVerifier } = require('./humanized/mockVerifier');
+const steamManager = require('./steamManager');
+const { createRealSteamExecutionAdapter, createRealSteamVerificationAdapter } = require('./humanized/realSteamAdapters');
 const { assertScheduleReplacementAllowed } = require('./humanized/schedulePolicy');
 const { SchedulerBusyError, createSchedule, createScheduler } = require('./humanized/schedulerEngine');
 
@@ -17,6 +17,8 @@ let engine = null;
 let tickTimer = null;
 let serviceFault = null;
 let leasedOwnerId = null;
+const executionAdapter = createRealSteamExecutionAdapter({ steamManager });
+const verificationAdapter = createRealSteamVerificationAdapter({ steamManager });
 
 function isTerminalItem(item) {
   return item.status === 'completed' || item.status === 'failed';
@@ -51,7 +53,7 @@ function enrichStatus(status) {
     ...(status.runtime ?? {}),
     error: serviceFault ?? status.runtime?.error ?? null,
   };
-  return { ...status, runtime, adapter: 'mock', verifier: 'mock' };
+  return { ...status, runtime, adapter: executionAdapter.kind, verifier: verificationAdapter.kind };
 }
 
 function emitUpdate(schedule) {
@@ -78,8 +80,8 @@ function persist(schedule) {
 function ensureEngine() {
   if (engine) return engine;
   engine = createScheduler({
-    executor: createMockExecutionAdapter(),
-    verifier: createMockVerifier(),
+    executor: executionAdapter,
+    verifier: verificationAdapter,
     persist,
     onUpdate: emitUpdate,
   });

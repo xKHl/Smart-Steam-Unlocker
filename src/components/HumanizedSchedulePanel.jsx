@@ -20,7 +20,7 @@ function statusLabel(status) {
 }
 
 export default function HumanizedSchedulePanel({ selectedGame, achievements, selectedIds, onScheduleCreated }) {
-  const [status, setStatus] = useState({ schedule: null, summary: null, adapter: 'mock' });
+  const [status, setStatus] = useState({ schedule: null, summary: null, adapter: 'steam' });
   const [orderMode, setOrderMode] = useState('original');
   const [seed, setSeed] = useState('humanized-schedule');
   const [error, setError] = useState('');
@@ -50,6 +50,7 @@ export default function HumanizedSchedulePanel({ selectedGame, achievements, sel
   const nextItem = schedule?.items?.find((item) => ['scheduled', 'retry', 'executing', 'verification-required'].includes(item.status));
   const completedPercent = summary?.total ? Math.round((summary.completed / summary.total) * 100) : 0;
   const runtimeError = status.runtime?.error?.message || '';
+  const itemError = schedule?.items?.find((item) => item.lastError)?.lastError || '';
 
   async function invoke(action) {
     setIsWorking(true);
@@ -90,7 +91,7 @@ export default function HumanizedSchedulePanel({ selectedGame, achievements, sel
             Humanized Schedule
           </h2>
           <p style={{ margin: '5px 0 0', color: 'var(--text-muted)', fontSize: 12 }}>
-            Deterministic timeline with a mock execution adapter. No Steam write operation is invoked by this mode.
+            Deterministic, App-ID-bound schedule with Steam execution and independent verification. The selected Steam App ID must match the persisted schedule before execution.
           </p>
         </div>
         <span className="badge badge-purple" style={{ padding: '3px 8px', textTransform: 'uppercase', letterSpacing: '.04em' }}>
@@ -168,15 +169,15 @@ export default function HumanizedSchedulePanel({ selectedGame, achievements, sel
       )}
       {schedule?.state === 'completed' && (
         <div style={{ display: 'flex', gap: 8, alignItems: 'center', marginTop: 12, color: '#86efac', fontSize: 12 }}>
-          <CircleCheck size={15} /> The mock schedule completed with verified outcomes.
+          <CircleCheck size={15} /> The schedule completed with Steam-verified outcomes.
         </div>
       )}
       {schedule?.state === 'failed' && (
         <div style={{ display: 'flex', gap: 8, alignItems: 'center', marginTop: 12, color: '#fca5a5', fontSize: 12 }}>
-          <RotateCcw size={15} /> One or more mock outcomes failed after their configured retry limit. Clear and regenerate to retry.
+          <RotateCcw size={15} /> One or more Steam operations failed after their configured retry limit. Clear and regenerate to retry.
         </div>
       )}
-      {(runtimeError || error) && <p style={{ color: '#fca5a5', fontSize: 12, margin: '12px 0 0' }}>{runtimeError || error}</p>}
+      {(runtimeError || error || itemError) && <p style={{ color: '#fca5a5', fontSize: 12, margin: '12px 0 0' }}>{runtimeError || error || itemError}</p>}
     </div>
   );
 }
