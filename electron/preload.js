@@ -50,6 +50,19 @@ contextBridge.exposeInMainWorld('steamAPI', {
     },
   },
 
+  // ─── Humanized Scheduler (mock execution adapter) ─────────────────────────
+  humanized: {
+    getStatus: () => ipcRenderer.invoke('humanized:get-status'),
+    create: (payload) => ipcRenderer.invoke('humanized:create', payload),
+    start: () => ipcRenderer.invoke('humanized:start'),
+    pause: () => ipcRenderer.invoke('humanized:pause'),
+    clear: () => ipcRenderer.invoke('humanized:clear'),
+    onUpdate: (cb) => {
+      ipcRenderer.removeAllListeners('humanized:update');
+      ipcRenderer.on('humanized:update', (_e, status) => cb(status));
+    },
+  },
+
   // ─── Timer Service ─────────────────────────────────────────────────────────
   timer: {
     startQueue: (achievements, base, variance, fixedMins) =>

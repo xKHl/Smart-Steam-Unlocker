@@ -9,6 +9,7 @@
 const { ipcMain, BrowserWindow, app } = require('electron');
 const steamManager  = require('../steamManager');
 const settingsStore = require('../settingsStore');
+const humanizedService = require('../humanizedService');
 
 // In-memory cache for the owned-games response (valid 5 minutes)
 let _libraryCache     = null;
@@ -124,12 +125,19 @@ function registerIpcHandlers() {
   ipcMain.handle('steam:get-global-achievement-percentages', (_e, appId) => steamManager.getGlobalAchievementPercentages(appId));
   ipcMain.handle('steam:unlock-achievement', (_e, { appId, achievementId }) => steamManager.unlockAchievement(achievementId));
 
-  // ─── Timer ────────────────────────────────────────────────────────────────
+  // ─── Legacy Timer (existing instant behavior) ─────────────────────────────
   const timerService = require('../timerService');
   ipcMain.handle('timer:start-queue', (_e, { achievements, base, variance, fixedMins }) => timerService.startQueue(achievements, base, variance, fixedMins));
   ipcMain.handle('timer:stop-queue',  () => timerService.stopQueue());
   ipcMain.handle('timer:clear-queue', () => timerService.clearQueue());
   ipcMain.handle('timer:get-status',  () => timerService.getStatus());
+
+  // ─── Humanized Scheduler (mock execution adapter only) ────────────────────
+  ipcMain.handle('humanized:get-status', () => humanizedService.getStatus());
+  ipcMain.handle('humanized:create', (_e, payload) => humanizedService.create(payload));
+  ipcMain.handle('humanized:start', () => humanizedService.start());
+  ipcMain.handle('humanized:pause', () => humanizedService.pause());
+  ipcMain.handle('humanized:clear', () => humanizedService.clear());
 
   // ─── Settings ─────────────────────────────────────────────────────────────
   ipcMain.handle('settings:get', (_e, key) => settingsStore.get(key));

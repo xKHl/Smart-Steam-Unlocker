@@ -77,9 +77,12 @@ app.whenReady().then(async () => {
   // ① Wire up all IPC channels before creating any window
   registerIpcHandlers();
 
-  // Initialize the timer service to restore any persisted queue
+  // Initialize persisted services. The Humanized scheduler restores paused and
+  // remains connected solely to its mock execution adapter.
   const timerService = require('./timerService');
+  const humanizedService = require('./humanizedService');
   timerService.init();
+  humanizedService.init();
 
   // ③ Open the main window
   await createWindow();
