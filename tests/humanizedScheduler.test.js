@@ -459,3 +459,30 @@ test('operation coordinator atomically rejects a queue containing a Humanized-ow
   assert.equal(coordinator.getLease(480, 'B'), null);
   assert.equal(coordinator.getLease(480, 'A').mode, 'humanized');
 });
+
+
+test('recovery verifier failure remains paused and never authorizes a duplicate execution', async () => {
+  let now = 1_200;
+  const executor = createMockExecutionAdapter({ outcomes: { A: ['success'] } });
+  const scheduler = createTestScheduler({
+    executor,
+    verifier: createMockVerifier({ outcomes: { A: ['failed'] } }),
+    now: () => now,
+  });
+  await scheduler.load({
+    version: 2,
+    id: 'interrupted-verifier-failure',
+    appId: 480,
+    state: SCHEDULE_STATE.RUNNING,
+    items: [{ id: 'A', status: ITEM_STATUS.EXECUTING, attempts: 1, maxRetries: 2, executionToken: 'old-token', scheduledAt: now }],
+  });
+
+  await scheduler.start();
+  await scheduler.processDue();
+  const current = scheduler.getSchedule();
+  assert.equal(current.state, SCHEDULE_STATE.PAUSED);
+  assert.equal(current.items[0].status, ITEM_STATUS.VERIFICATION_REQUIRED);
+  assert.equal(current.items[0].verification, VERIFICATION.UNCERTAIN);
+  assert.equal(current.items[0].recoveryPending, true);
+  assert.equal(executor.getCalls().length, 0);
+});

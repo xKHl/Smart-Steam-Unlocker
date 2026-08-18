@@ -432,6 +432,13 @@ function createScheduler({ executor, verifier, persist = () => true, now = () =>
       item.status = ITEM_STATUS.VERIFICATION_REQUIRED;
       next.state = SCHEDULE_STATE.PAUSED;
       item.lastError = verificationResult.error || 'Verification outcome is uncertain; scheduling has been paused.';
+    } else if (item.recoveryPending) {
+      // A verifier error after an interrupted external operation is ambiguous.
+      // Preserve the verifier-first barrier instead of permitting another execution.
+      item.status = ITEM_STATUS.VERIFICATION_REQUIRED;
+      item.verification = VERIFICATION.UNCERTAIN;
+      next.state = SCHEDULE_STATE.PAUSED;
+      item.lastError = verificationResult.error || 'Recovered execution could not be verified; scheduling remains paused.';
     } else {
       item.executionToken = null;
       if (item.attempts <= item.maxRetries) {
