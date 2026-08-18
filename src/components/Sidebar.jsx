@@ -9,7 +9,7 @@ const NAV_LINKS = [
   { to: '/settings',     icon: Settings,        label: 'Settings',     id: 'nav-settings',     end: false },
 ];
 
-export default function Sidebar({ steamStatus, selectedGame }) {
+export default function Sidebar({ steamStatus, selectedGame, version }) {
   return (
     <aside className="sidebar">
 
@@ -19,8 +19,8 @@ export default function Sidebar({ steamStatus, selectedGame }) {
           <Zap size={18} color="#fff" />
         </div>
         <div>
-          <p className="logo-title">Smart Unlocker</p>
-          <p className="logo-subtitle">v0.1.0 · Alpha</p>
+          <p className="logo-title">Smart Steam Unlocker</p>
+          <p className="logo-subtitle">v{version || '…'}</p>
         </div>
       </div>
 

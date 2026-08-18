@@ -1,190 +1,296 @@
-import React, { useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Trophy, Gamepad2, Target, TrendingUp, ChevronRight, Sparkles, AlertCircle, RefreshCw, Loader2 } from 'lucide-react';
+import {
+  AlertCircle,
+  BookOpen,
+  CheckCircle2,
+  ChevronRight,
+  ExternalLink,
+  Gamepad2,
+  Loader2,
+  RefreshCw,
+  Settings,
+  Sparkles,
+  Target,
+  Trophy,
+  TrendingUp,
+} from 'lucide-react';
+
+const DATA_ERROR_COPY = {
+  NO_API_KEY: 'Add a Steam Web API key in Settings to load your library.',
+  INVALID_API_KEY: 'Steam rejected the configured API key. Update it in Settings.',
+  STEAM_NOT_CONNECTED: 'Steam needs to be connected before Overview can load data.',
+  PRIVATE_PROFILE: 'Steam returned no library data. Check that game details are public.',
+  FETCH_ERROR: 'Steam data could not be retrieved right now. Try again shortly.',
+};
+
+function metricStateValue({ phase, value, unavailableValue = 'Unavailable' }) {
+  if (phase === 'loading') return 'Loading…';
+  if (phase === 'error' || phase === 'unavailable') return unavailableValue;
+  return value;
+}
+
+function formatCompletion(unlocked, total) {
+  if (!total) return 'No data';
+  return `${Math.round((unlocked / total) * 100)}%`;
+}
 
 /**
- * Placeholder stat cards — all values are dashes until Phase 2 connects
- * real game & achievement data from steamManager.getAchievements().
+ * Dashboard — concise product overview driven by the existing Steam IPC data.
+ * Library metrics cover the real owned-game response; achievement metrics are
+ * explicitly scoped to the selected game because the application does not keep
+ * an all-library achievement aggregate in memory.
  */
-const STAT_CARDS = [
-  {
-    id:    'stat-games',
-    icon:  Gamepad2,
-    label: 'Games Tracked',
-    value: '—',
-    sub:   'Connect Steam to start',
-    color: 'purple',
-  },
-  {
-    id:    'stat-unlocked',
-    icon:  Trophy,
-    label: 'Achievements Unlocked',
-    value: '—',
-    sub:   'No unlocks yet',
-    color: 'blue',
-  },
-  {
-    id:    'stat-rate',
-    icon:  Target,
-    label: 'Completion Rate',
-    value: '—',
-    sub:   'Across all games',
-    color: 'indigo',
-  },
-  {
-    id:    'stat-activity',
-    icon:  TrendingUp,
-    label: 'Last Activity',
-    value: '—',
-    sub:   'Never',
-    color: 'violet',
-  },
-];
-
-const STEPS = [
-  {
-    step:  '01',
-    title: 'Open Steam',
-    desc:  'Ensure the Steam client is running on this machine before launching Smart Steam Unlocker.',
-  },
-  {
-    step:  '02',
-    title: 'Browse Your Games',
-    desc:  'Head to the Achievements page and select a game to view its achievement list.',
-  },
-  {
-    step:  '03',
-    title: 'Unlock with Smart Delay',
-    desc:  'Select an achievement and use the Smart Delay Timer to unlock it with a human-like interval.',
-  },
-];
-
-/**
- * Dashboard — Main landing page.
- *
- * Sections:
- *  • Hero card with greeting + CTA
- *  • Steam disconnected warning (conditional) with reconnect button
- *  • Stats overview grid (placeholder)
- *  • Getting-started guide
- */
-export default function Dashboard({ steamStatus, onSteamReconnect }) {
+export default function Dashboard({ steamStatus, selectedGame, onSteamReconnect }) {
   const navigate = useNavigate();
   const [isReconnecting, setIsReconnecting] = useState(false);
+  const [overview, setOverview] = useState({
+    phase: 'loading',
+    games: [],
+    achievementResult: null,
+    errorCode: null,
+    detail: '',
+  });
 
-  const greeting = steamStatus.connected && steamStatus.playerName
-    ? `Welcome back, ${steamStatus.playerName}`
-    : 'Smart Steam Unlocker';
+  const loadOverview = useCallback(async () => {
+    if (!steamStatus.connected) {
+      setOverview({ phase: 'unavailable', games: [], achievementResult: null, errorCode: 'STEAM_NOT_CONNECTED', detail: '' });
+      return;
+    }
 
-  const subline = steamStatus.connected
-    ? 'Your Steam client is connected and ready to go.'
-    : 'Connect to Steam to start managing your achievements.';
+    setOverview((current) => ({ ...current, phase: 'loading', errorCode: null, detail: '' }));
+    try {
+      const libraryResult = await window.steamAPI?.steam.getOwnedGames({ forceRefresh: false });
+      if (!libraryResult?.success) {
+        setOverview({
+          phase: 'error', games: [], achievementResult: null,
+          errorCode: libraryResult?.errorCode || 'FETCH_ERROR', detail: libraryResult?.detail || '',
+        });
+        return;
+      }
+
+      let achievementResult = null;
+      if (selectedGame?.appId) {
+        achievementResult = await window.steamAPI?.steam.getAchievements(selectedGame.appId);
+      }
+      setOverview({ phase: 'ready', games: libraryResult.games || [], achievementResult, errorCode: null, detail: '' });
+    } catch (error) {
+      setOverview({ phase: 'error', games: [], achievementResult: null, errorCode: 'FETCH_ERROR', detail: error instanceof Error ? error.message : '' });
+    }
+  }, [selectedGame?.appId, steamStatus.connected]);
+
+  useEffect(() => { loadOverview(); }, [loadOverview]);
+
+  useEffect(() => {
+    const handleUnlock = () => loadOverview();
+    window.steamAPI?.steam.onAchievementUnlocked(handleUnlock);
+  }, [loadOverview]);
 
   const handleReconnect = async () => {
     setIsReconnecting(true);
     try {
       await onSteamReconnect();
+      await loadOverview();
     } finally {
       setIsReconnecting(false);
     }
   };
 
+  const metrics = useMemo(() => {
+    const achievements = overview.achievementResult?.success ? overview.achievementResult.achievements || [] : [];
+    const unlocked = achievements.filter((achievement) => achievement.unlocked).length;
+    const total = achievements.length;
+    const hasCurrentGameData = Boolean(selectedGame?.appId && overview.achievementResult?.success);
+    const phase = overview.phase;
+
+    return [
+      {
+        id: 'stat-games', icon: Gamepad2, label: 'Games Tracked', color: 'purple',
+        value: metricStateValue({ phase, value: overview.games.length.toLocaleString() }),
+        sub: phase === 'ready'
+          ? overview.games.length ? 'From your Steam library' : 'Steam returned no games'
+          : 'Your known Steam library',
+      },
+      {
+        id: 'stat-unlocked', icon: Trophy, label: 'Achievements Unlocked', color: 'blue',
+        value: hasCurrentGameData ? unlocked.toLocaleString() : metricStateValue({ phase, value: 'Select a game', unavailableValue: 'Unavailable' }),
+        sub: hasCurrentGameData ? `In ${selectedGame.name}` : selectedGame ? 'Achievement data unavailable' : 'Choose a game to view progress',
+      },
+      {
+        id: 'stat-rate', icon: Target, label: 'Completion Rate', color: 'indigo',
+        value: hasCurrentGameData ? formatCompletion(unlocked, total) : metricStateValue({ phase, value: 'Select a game', unavailableValue: 'Unavailable' }),
+        sub: hasCurrentGameData ? total ? `${unlocked} of ${total} unlocked` : 'This game has no achievement data' : 'For the selected game',
+      },
+      {
+        id: 'stat-activity', icon: TrendingUp, label: 'Last Activity', color: 'violet',
+        value: 'Never',
+        sub: 'No recorded activity yet',
+      },
+    ];
+  }, [overview, selectedGame]);
+
+  const featuredGames = useMemo(() => (
+    [...overview.games]
+      .sort((a, b) => (b.playtimeMinutes ?? 0) - (a.playtimeMinutes ?? 0))
+      .slice(0, 3)
+  ), [overview.games]);
+
+  const greeting = steamStatus.connected && steamStatus.playerName
+    ? `Welcome back, ${steamStatus.playerName}`
+    : 'Smart Steam Unlocker';
+  const subline = steamStatus.connected
+    ? selectedGame ? `Ready to continue with ${selectedGame.name}.` : 'Your Steam client is connected. Choose a game to begin.'
+    : 'Connect to Steam to start managing your achievements.';
+  const overviewError = overview.errorCode ? DATA_ERROR_COPY[overview.errorCode] || DATA_ERROR_COPY.FETCH_ERROR : null;
+
+  async function openExternal(url) {
+    try {
+      await window.steamAPI?.app?.openExternal(url);
+    } catch {
+      // The footer remains non-blocking if the desktop bridge is unavailable.
+    }
+  }
+
   return (
-    <div className="page-container animate-fade-in">
-
-      {/* ── Hero Card ─────────────────────────────────────────────────────── */}
-      <div className="hero-card">
-        <div className="hero-glow" aria-hidden="true" />
-
-        <div className="hero-content">
-          <div className="hero-icon-wrap" aria-hidden="true">
-            <Trophy size={30} color="#fff" />
-          </div>
-          <div style={{ minWidth: 0 }}>
-            <h1 className="hero-title">{greeting}</h1>
-            <p className="hero-sub">{subline}</p>
+    <div className="page-container dashboard-page animate-fade-in">
+      <section className="dashboard-hero" aria-labelledby="dashboard-welcome">
+        <div className="dashboard-hero-glow" aria-hidden="true" />
+        <div className="dashboard-hero-content">
+          <div className="dashboard-hero-icon" aria-hidden="true"><Trophy size={25} /></div>
+          <div>
+            <p className="dashboard-eyebrow">Steam achievement companion</p>
+            <h1 id="dashboard-welcome">{greeting}</h1>
+            <p>{subline}</p>
           </div>
         </div>
+        <div className="dashboard-hero-actions">
+          <button className="hero-cta" onClick={() => navigate(selectedGame ? '/achievements' : '/library')}>
+            {selectedGame ? 'Continue Current Game' : 'Open Library'} <ChevronRight size={15} />
+          </button>
+          <button className="btn-secondary" onClick={() => navigate('/settings')}><Settings size={13} /> Settings</button>
+        </div>
+      </section>
 
-        <button
-          id="btn-browse-achievements"
-          className="hero-cta"
-          onClick={() => navigate('/achievements')}
-          aria-label="Browse achievements"
-        >
-          Browse Achievements
-          <ChevronRight size={15} aria-hidden="true" />
-        </button>
-      </div>
-
-      {/* ── Steam Disconnected Warning ─────────────────────────────────────── */}
       {!steamStatus.connected && (
         <div className="alert-card" role="alert">
           <AlertCircle size={18} color="#fbbf24" style={{ flexShrink: 0, marginTop: 1 }} />
           <div style={{ flex: 1 }}>
             <p className="alert-title">Steam is not connected</p>
-            <p className="alert-sub">
-              Make sure the Steam client is running on this machine, then click
-              the button to establish the Steamworks connection.
-            </p>
+            <p className="alert-sub">Start the Steam client on this machine, then establish a connection to load your library and achievement data.</p>
           </div>
-          <button
-            className="btn-secondary"
-            onClick={handleReconnect}
-            disabled={isReconnecting}
-            style={{ marginLeft: 'auto', flexShrink: 0 }}
-          >
-            {isReconnecting ? (
-              <><Loader2 size={13} className="animate-spin" /> Connecting…</>
-            ) : (
-              <><RefreshCw size={13} /> Connect to Steam</>
-            )}
+          <button className="btn-secondary" onClick={handleReconnect} disabled={isReconnecting}>
+            {isReconnecting ? <><Loader2 size={13} className="animate-spin" /> Connecting…</> : <><RefreshCw size={13} /> Connect to Steam</>}
           </button>
         </div>
       )}
 
-      {/* ── Stats Overview ────────────────────────────────────────────────── */}
-      <section aria-labelledby="section-overview">
-        <h2 id="section-overview" className="section-title">
-          <Sparkles size={13} aria-hidden="true" />
-          Overview
-        </h2>
+      <section className="dashboard-overview" aria-labelledby="section-overview">
+        <div className="dashboard-section-heading">
+          <div>
+            <p className="dashboard-eyebrow">At a glance</p>
+            <h2 id="section-overview"><Sparkles size={15} aria-hidden="true" /> Overview</h2>
+          </div>
+          {overview.phase === 'loading' ? <span className="dashboard-data-state"><Loader2 size={13} className="animate-spin" /> Updating</span> : (
+            <button className="dashboard-refresh" onClick={loadOverview} disabled={overview.phase === 'unavailable'} title="Refresh Overview data"><RefreshCw size={13} /> Refresh</button>
+          )}
+        </div>
 
-        <div className="stats-grid">
-          {STAT_CARDS.map(({ id, icon: Icon, label, value, sub, color }) => (
-            <div key={id} id={id} className="stat-card">
-              <div className={`stat-icon stat-icon--${color}`} aria-hidden="true">
-                <Icon size={19} />
-              </div>
+        {overviewError && (
+          <div className="dashboard-data-message" role="alert">
+            <AlertCircle size={16} /> <span>{overviewError}</span>
+            <button type="button" onClick={loadOverview}>Try again</button>
+          </div>
+        )}
+
+        <div className="stats-grid dashboard-stats-grid">
+          {metrics.map(({ id, icon: Icon, label, value, sub, color }) => (
+            <article key={id} id={id} className="stat-card">
+              <div className={`stat-icon stat-icon--${color}`} aria-hidden="true"><Icon size={19} /></div>
               <div>
                 <p className="stat-value" aria-label={`${label}: ${value}`}>{value}</p>
                 <p className="stat-label">{label}</p>
                 <p className="stat-sub">{sub}</p>
               </div>
-            </div>
+            </article>
           ))}
         </div>
+        {selectedGame && overview.achievementResult && !overview.achievementResult.success && overview.phase === 'ready' && (
+          <p className="dashboard-inline-note">Achievement progress for {selectedGame.name} is unavailable. Library data remains up to date.</p>
+        )}
       </section>
 
-      {/* ── Getting Started ───────────────────────────────────────────────── */}
-      <section aria-labelledby="section-getting-started">
-        <h2 id="section-getting-started" className="section-title">
-          Getting Started
-        </h2>
+      <section className="dashboard-lower-grid" aria-label="Dashboard actions and current game">
+        <article className="dashboard-current-card">
+          <div className="dashboard-card-heading">
+            <div className="dashboard-card-icon"><Gamepad2 size={16} /></div>
+            <div><p className="dashboard-eyebrow">Current focus</p><h2>Continue where you left off</h2></div>
+          </div>
+          {selectedGame ? (
+            <>
+              <p className="dashboard-current-game">{selectedGame.name}</p>
+              <p>Review its achievements, select what matters next, or continue an existing schedule.</p>
+              <button className="btn-success" onClick={() => navigate('/achievements')}><Trophy size={14} /> Browse achievements</button>
+            </>
+          ) : (
+            <>
+              <p className="dashboard-current-game">No game selected</p>
+              <p>Open your Steam library to select a game and view its achievement progress.</p>
+              <button className="btn-secondary" onClick={() => navigate('/library')}><BookOpen size={14} /> Browse library</button>
+            </>
+          )}
+        </article>
 
-        <div className="getting-started-card">
-          {STEPS.map(({ step, title, desc }) => (
-            <div key={step} className="step-item">
-              <span className="step-number" aria-label={`Step ${step}`}>{step}</span>
-              <div>
-                <p className="step-title">{title}</p>
-                <p className="step-desc">{desc}</p>
-              </div>
-            </div>
-          ))}
+        <article className="dashboard-actions-card">
+          <div className="dashboard-card-heading">
+            <div className="dashboard-card-icon"><CheckCircle2 size={16} /></div>
+            <div><p className="dashboard-eyebrow">Quick actions</p><h2>Keep moving</h2></div>
+          </div>
+          <div className="dashboard-action-list">
+            <button onClick={() => navigate('/library')}><BookOpen size={15} /><span><strong>Open Library</strong><small>Browse the games Steam has returned</small></span><ChevronRight size={15} /></button>
+            <button onClick={() => navigate(selectedGame ? '/achievements' : '/library')}><Trophy size={15} /><span><strong>{selectedGame ? 'Browse Achievements' : 'Choose a Game'}</strong><small>{selectedGame ? `View progress for ${selectedGame.name}` : 'Select a game to view achievements'}</small></span><ChevronRight size={15} /></button>
+            <button onClick={() => navigate('/settings')}><Settings size={15} /><span><strong>Steam Settings</strong><small>Manage connection and Web API access</small></span><ChevronRight size={15} /></button>
+          </div>
+        </article>
+      </section>
+
+      <section className="dashboard-library-snapshot" aria-labelledby="dashboard-library-snapshot-title">
+        <div className="dashboard-section-heading">
+          <div>
+            <p className="dashboard-eyebrow">Your library</p>
+            <h2 id="dashboard-library-snapshot-title"><BookOpen size={15} aria-hidden="true" /> Library Snapshot</h2>
+          </div>
+          <button className="dashboard-refresh" onClick={() => navigate('/library')}>View library <ChevronRight size={13} /></button>
         </div>
+        {overview.phase === 'loading' ? (
+          <div className="dashboard-snapshot-state"><Loader2 size={15} className="animate-spin" /> Loading library details…</div>
+        ) : featuredGames.length ? (
+          <div className="dashboard-snapshot-list">
+            {featuredGames.map((game) => {
+              const played = Math.round((game.playtimeMinutes ?? 0) / 60);
+              return (
+                <button key={game.appId} type="button" onClick={() => navigate('/library')}>
+                  <span className="dashboard-snapshot-game-mark"><Gamepad2 size={14} /></span>
+                  <span className="dashboard-snapshot-game-name">{game.name}</span>
+                  <span className="dashboard-snapshot-game-meta">{played ? `${played.toLocaleString()}h played` : 'Not played yet'}</span>
+                  <ChevronRight size={14} />
+                </button>
+              );
+            })}
+          </div>
+        ) : (
+          <div className="dashboard-snapshot-state">
+            {overview.phase === 'ready' ? 'Steam has not returned any games for this library.' : 'Connect Steam and add a Web API key to view your library snapshot.'}
+          </div>
+        )}
       </section>
 
+      <footer className="dashboard-footer">
+        <span>© 2026 Khalid Alotaibi</span>
+        <span className="dashboard-footer-divider">·</span>
+        <button type="button" onClick={() => openExternal('https://github.com/xkhi')}><ExternalLink size={11} /> GitHub: xkhi</button>
+        <span className="dashboard-footer-divider">·</span>
+        <button type="button" onClick={() => openExternal('https://alotaibi.dev')}><ExternalLink size={11} /> alotaibi.dev</button>
+      </footer>
     </div>
   );
 }

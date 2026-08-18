@@ -108,11 +108,11 @@ function AppContent() {
         <Header steamStatus={steamStatus} />
 
         <div className="app-body">
-          <Sidebar steamStatus={steamStatus} selectedGame={selectedGame} />
+          <Sidebar steamStatus={steamStatus} selectedGame={selectedGame} version={appVersion} />
 
           <main className="main-content">
             <Routes>
-              <Route path="/"             element={<Dashboard    steamStatus={steamStatus} onSteamReconnect={handleSteamReconnect} />} />
+              <Route path="/"             element={<Dashboard    steamStatus={steamStatus} selectedGame={selectedGame} onSteamReconnect={handleSteamReconnect} />} />
               <Route path="/library"      element={<Library      selectedGame={selectedGame} onGameSelect={handleGameSelect} />} />
               <Route path="/achievements" element={<Achievements selectedGame={selectedGame} onChangeGame={() => navigate('/library')} />} />
               <Route path="/settings"     element={<Settings />} />

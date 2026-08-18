@@ -6,7 +6,7 @@
  * All persistence lives in settingsStore.js.
  */
 
-const { ipcMain, BrowserWindow, app } = require('electron');
+const { ipcMain, BrowserWindow, app, shell } = require('electron');
 const steamManager  = require('../steamManager');
 const settingsStore = require('../settingsStore');
 const humanizedService = require('../humanizedService');
@@ -16,6 +16,10 @@ const { orderAchievements } = require('../humanized/ordering');
 let _libraryCache     = null;
 let _libraryCacheTime = 0;
 const CACHE_TTL_MS    = 5 * 60 * 1000;
+const TRUSTED_EXTERNAL_URLS = new Set([
+  'https://github.com/xkhi',
+  'https://alotaibi.dev',
+]);
 
 function invalidateLibraryCache() {
   _libraryCache     = null;
@@ -162,6 +166,11 @@ function registerIpcHandlers() {
 
   // ─── App Info ─────────────────────────────────────────────────────────────
   ipcMain.handle('app:get-version', () => app.getVersion());
+  ipcMain.handle('app:open-external', async (_e, url) => {
+    if (!TRUSTED_EXTERNAL_URLS.has(url)) throw new Error('This external link is not permitted.');
+    await shell.openExternal(url);
+    return true;
+  });
 
   // console.log('[IPC] ✓ All handlers registered.');
 }

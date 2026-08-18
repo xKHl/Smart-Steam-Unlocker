@@ -89,6 +89,7 @@ contextBridge.exposeInMainWorld('steamAPI', {
   // ─── App ───────────────────────────────────────────────────────────────────
   app: {
     getVersion:     () => ipcRenderer.invoke('app:get-version'),
+    openExternal:   (url) => ipcRenderer.invoke('app:open-external', url),
     onInitialState: (cb) => ipcRenderer.once('app:initial-state', (_e, s) => cb(s)),
   },
 });
