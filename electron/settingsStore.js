@@ -11,19 +11,51 @@ const fs = require('fs');
 const path = require('path');
 
 const SETTINGS_PATH = path.join(app.getPath('userData'), 'app-settings.json');
+let recoveryNotice = null;
+
+function quarantineCorruptSettings(error) {
+  const timestamp = new Date().toISOString().replace(/[:.]/g, '-');
+  const quarantinePath = path.join(path.dirname(SETTINGS_PATH), `app-settings.corrupt.${timestamp}.json`);
+  try {
+    fs.renameSync(SETTINGS_PATH, quarantinePath);
+    recoveryNotice = {
+      code: 'SETTINGS_CORRUPT_QUARANTINED',
+      message: 'Saved application state was corrupt and has been preserved in a quarantine file. Start a new schedule after reviewing the recovery notice.',
+      quarantineFile: path.basename(quarantinePath),
+    };
+  } catch (quarantineError) {
+    recoveryNotice = {
+      code: 'SETTINGS_CORRUPT_UNREADABLE',
+      message: 'Saved application state is corrupt and could not be quarantined automatically. Do not delete it before collecting diagnostics.',
+      quarantineFile: null,
+      detail: quarantineError instanceof Error ? quarantineError.message : String(quarantineError),
+    };
+  }
+  return {};
+}
 
 function readAll() {
+  let contents;
   try {
-    const contents = fs.readFileSync(SETTINGS_PATH, 'utf8');
+    contents = fs.readFileSync(SETTINGS_PATH, 'utf8');
+  } catch (error) {
+    if (error?.code === 'ENOENT') return {};
+    throw new Error(`Unable to read settings: ${error instanceof Error ? error.message : String(error)}`);
+  }
+
+  try {
     const parsed = JSON.parse(contents);
     if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) {
       throw new Error('Settings file must contain a JSON object.');
     }
     return parsed;
   } catch (error) {
-    if (error?.code === 'ENOENT') return {};
-    throw new Error(`Unable to read settings: ${error instanceof Error ? error.message : String(error)}`);
+    return quarantineCorruptSettings(error);
   }
+}
+
+function getRecoveryNotice() {
+  return recoveryNotice ? { ...recoveryNotice } : null;
 }
 
 function writeAll(data) {
@@ -76,4 +108,4 @@ function del(key) {
   return writeAll(data);
 }
 
-module.exports = { get, set, delete: del, readAll, writeAll };
+module.exports = { get, set, delete: del, getRecoveryNotice, readAll, writeAll };

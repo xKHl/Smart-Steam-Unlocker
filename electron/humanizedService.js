@@ -10,6 +10,7 @@ const { operationCoordinator } = require('./operationCoordinator');
 const steamManager = require('./steamManager');
 const { createRealSteamExecutionAdapter, createRealSteamVerificationAdapter } = require('./humanized/realSteamAdapters');
 const { assertScheduleReplacementAllowed } = require('./humanized/schedulePolicy');
+const { ScheduleValidationError, validateSchedule } = require('./humanized/scheduleValidation');
 const { SchedulerBusyError, createSchedule, createScheduler } = require('./humanized/schedulerEngine');
 
 const STORAGE_KEY = 'humanizedSchedulerState';
@@ -112,15 +113,18 @@ async function init() {
   try {
     const savedSchedule = settingsStore.get(STORAGE_KEY);
     if (savedSchedule) {
+      validateSchedule(savedSchedule);
       synchronizeLeases(savedSchedule);
       const loaded = await ensureEngine().load(savedSchedule);
       if (loaded?.state === 'running') ensureTickLoop();
     }
+    const persistenceRecovery = settingsStore.getRecoveryNotice?.();
+    if (persistenceRecovery) serviceFault = persistenceRecovery;
   } catch (error) {
     if (leasedOwnerId) operationCoordinator.releaseOwner(leasedOwnerId);
     leasedOwnerId = null;
     serviceFault = {
-      code: error?.code || 'PERSISTENCE_FAILED',
+      code: error instanceof ScheduleValidationError ? error.code : (error?.code || 'PERSISTENCE_FAILED'),
       message: error instanceof Error ? error.message : String(error),
     };
   }
@@ -162,6 +166,7 @@ async function create(payload, { replace = false } = {}) {
 
   stopTickLoop();
   const nextSchedule = createSchedule(payload);
+  validateSchedule(nextSchedule);
   await applyScheduleChange(nextSchedule, () => scheduler.setSchedule(nextSchedule));
   return getStatus();
 }

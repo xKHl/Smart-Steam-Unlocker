@@ -16,7 +16,7 @@ const path = require('path');
 const settingsStore = require('./settingsStore');
 const credentialStore = require('./credentialStore');
 const { createSteamApiClient, STEAM_READ_ERROR } = require('./steamApiClient');
-const { BrowserWindow } = require('electron');
+const { app, BrowserWindow } = require('electron');
 
 const steamApiClient = createSteamApiClient();
 
@@ -34,19 +34,20 @@ let cachedSteamId    = null;
 let steamIsAvailable = false;
 let isSteamProcessRunning = false;
 
-// Poll for steam.exe every 5 seconds if we haven't officially connected
-setInterval(() => {
-  if (!steamIsAvailable) {
-    const { exec } = require('child_process');
-    exec('tasklist /FI "IMAGENAME eq steam.exe" /NH', (err, stdout) => {
-      if (!err && stdout.toLowerCase().includes('steam.exe')) {
-        isSteamProcessRunning = true;
-      } else {
-        isSteamProcessRunning = false;
-      }
-    });
+// Poll the Windows Steam process only where that command exists. Other
+// platforms rely on the authoritative Steamworks connection state instead.
+const steamProcessPoll = setInterval(() => {
+  if (steamIsAvailable) return;
+  if (process.platform !== 'win32') {
+    isSteamProcessRunning = false;
+    return;
   }
+  const { exec } = require('child_process');
+  exec('tasklist /FI "IMAGENAME eq steam.exe" /NH', (err, stdout) => {
+    isSteamProcessRunning = Boolean(!err && stdout.toLowerCase().includes('steam.exe'));
+  });
 }, 5000);
+steamProcessPoll.unref?.();
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Steam Web API — Full Owned Library
@@ -113,26 +114,43 @@ async function getOwnedGames(apiKey, steamId) {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Game Switching
+// Game Switching / Steam Runtime Context
 // ─────────────────────────────────────────────────────────────────────────────
 
-async function switchGame(appId) {
-  // console.log(`[SteamManager] Preparing switch → AppID: ${appId}`);
-  
-  // Shutdown current client to release Steam context
-  shutdown();
-  
-  try {
-    fs.writeFileSync(path.join(process.cwd(), 'steam_appid.txt'), String(appId), 'utf8');
-    // console.log(`[SteamManager] steam_appid.txt → ${appId}`);
-  } catch (err) {
-    // console.warn('[SteamManager] Could not update steam_appid.txt:', err.message);
+function getSteamRuntimeDirectory() {
+  // A user-data directory is writable in development and packaged Windows,
+  // Linux AppImage, and macOS environments. It avoids mutating packaged
+  // resources or relying on an arbitrary launcher working directory.
+  return path.join(app.getPath('userData'), 'steam-runtime');
+}
+
+function prepareSteamRuntimeContext(appId) {
+  if (!Number.isInteger(Number(appId)) || Number(appId) <= 0) {
+    throw new Error('A valid Steam App ID is required to prepare the runtime context.');
   }
-  
-  currentAppId = appId;
-  
-  // We no longer eagerly initialize on switch! 
-  // We remain 100% idle and lazy.
+  const runtimeDirectory = getSteamRuntimeDirectory();
+  const appIdPath = path.join(runtimeDirectory, 'steam_appid.txt');
+  try {
+    fs.mkdirSync(runtimeDirectory, { recursive: true, mode: 0o700 });
+    fs.writeFileSync(appIdPath, `${Number(appId)}\n`, { encoding: 'utf8', mode: 0o600 });
+    // Steamworks consults the process working directory for steam_appid.txt.
+    // Node resolves required native modules before this point, so changing into
+    // the controlled runtime directory does not alter module resolution.
+    if (process.cwd() !== runtimeDirectory) process.chdir(runtimeDirectory);
+    return { runtimeDirectory, appIdPath, appId: Number(appId) };
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    throw new Error(`Steam runtime context could not be prepared: ${message}`);
+  }
+}
+
+async function switchGame(appId) {
+  // Shutdown current client to release Steam context before changing App ID.
+  shutdown();
+  prepareSteamRuntimeContext(appId);
+  currentAppId = Number(appId);
+  // Lazy initialization is retained; the context is only connected when a
+  // Steam operation or identity read requires it.
   return true;
 }
 
@@ -141,14 +159,9 @@ async function switchGame(appId) {
 // ─────────────────────────────────────────────────────────────────────────────
 
 async function initSteam(forceAppId = null) {
-  // Use the provided AppID, or 480 (Spacewar) for the boot-time handshake
-  let appId = forceAppId || 480;
-  
-  // Ensure steam_appid.txt exists so steamworks.js can identify the game context
-  try {
-    fs.writeFileSync(path.join(process.cwd(), 'steam_appid.txt'), String(appId), 'utf8');
-  } catch { /* ignore */ }
-
+  // Use the provided AppID, or 480 (Spacewar) for the boot-time handshake.
+  const appId = Number(forceAppId || 480);
+  prepareSteamRuntimeContext(appId);
   currentAppId = appId;
 
   try {
@@ -378,11 +391,16 @@ async function unlockAchievement(achievementId, expectedAppId = null) {
   // Ensure any previous session is fully dead before we begin
   shutdown();
 
-  // Ensure steam_appid.txt is set to the correct game before we spin up the context
+  // Prepare the writable per-user Steam context before creating a native client.
   try {
-    fs.writeFileSync(path.join(process.cwd(), 'steam_appid.txt'), String(targetAppId), 'utf8');
-  } catch (err) {
-    // console.warn('[SteamManager] Could not write steam_appid.txt:', err.message);
+    prepareSteamRuntimeContext(Number(targetAppId));
+  } catch (error) {
+    return {
+      success: false,
+      achievementId,
+      error: error instanceof Error ? error.message : String(error),
+      errorCode: 'STEAM_RUNTIME_CONTEXT_FAILED',
+    };
   }
 
   let localClient = null;
@@ -571,6 +589,8 @@ module.exports = {
   shutdown,
   getStatus,
   getSelectedAppId,
+  getSteamRuntimeDirectory,
+  prepareSteamRuntimeContext,
   getOwnedGames,
   switchGame,
   getAchievements,

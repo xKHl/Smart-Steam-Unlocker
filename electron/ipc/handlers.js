@@ -36,6 +36,16 @@ function invalidateLibraryCache() {
   _libraryCacheTime = 0;
 }
 
+function assertGameSwitchAllowed(appId) {
+  const schedule = humanizedService.getStatus()?.schedule;
+  const hasNonterminalItem = schedule?.items?.some((item) => !['completed', 'failed'].includes(item.status));
+  if (hasNonterminalItem && Number(schedule.appId) !== Number(appId)) {
+    const error = new Error('Pause and clear the active Humanized schedule before selecting another game.');
+    error.code = 'ACTIVE_SCHEDULE_APP_ID_CONFLICT';
+    throw error;
+  }
+}
+
 // ─────────────────────────────────────────────────────────────────────────────
 
 function registerIpcHandlers() {
@@ -125,6 +135,7 @@ function registerIpcHandlers() {
   // ─── Steam: Switch Game ───────────────────────────────────────────────────
   ipcMain.handle('steam:switch-game', async (_event, payload) => {
     const { appId, name, headerImage } = sanitizeSwitchGamePayload(payload);
+    assertGameSwitchAllowed(appId);
     // console.log(`[IPC] steam:switch-game → AppID: ${appId} (${name})`);
     settingsStore.set('selectedGame', { appId, name, headerImage });
 

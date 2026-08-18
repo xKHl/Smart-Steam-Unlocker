@@ -7,6 +7,19 @@ const settingsStore = require('./settingsStore');
 const isDev = process.env.NODE_ENV === 'development';
 
 let mainWindow = null;
+const hasSingleInstanceLock = app.requestSingleInstanceLock();
+
+if (hasSingleInstanceLock) {
+  app.on('second-instance', () => {
+    if (!mainWindow) return;
+    if (mainWindow.isMinimized()) mainWindow.restore();
+    mainWindow.show();
+    mainWindow.focus();
+  });
+} else {
+  // A primary process already owns the scheduler/operation leases.
+  app.quit();
+}
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Window Factory
@@ -101,11 +114,12 @@ async function createWindow() {
 // ─────────────────────────────────────────────────────────────────────────────
 
 app.whenReady().then(async () => {
+  if (!hasSingleInstanceLock) return;
   // ① Wire up all IPC channels before creating any window
   registerIpcHandlers();
 
-  // Initialize persisted services. The Humanized scheduler restores paused and
-  // remains connected solely to its mock execution adapter.
+  // Initialize persisted services. Humanized verification jobs resume only
+  // through their verifier-first recovery policy.
   const timerService = require('./timerService');
   const humanizedService = require('./humanizedService');
   timerService.init();

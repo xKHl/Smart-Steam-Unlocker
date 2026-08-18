@@ -89,6 +89,25 @@ function clone(value) {
   return value === null || value === undefined ? value : JSON.parse(JSON.stringify(value));
 }
 
+const MAX_PERSISTED_DIAGNOSTICS = 40;
+
+function appendDiagnostic(schedule, item, event) {
+  const diagnostics = Array.isArray(schedule.diagnostics) ? schedule.diagnostics : [];
+  schedule.diagnostics = [...diagnostics, {
+    timestamp: event.timestamp,
+    scheduleId: schedule.id,
+    appId: schedule.appId,
+    achievementId: item?.id ?? null,
+    sequencePosition: item?.sequencePosition ?? null,
+    executionToken: item?.executionToken ?? item?.interruptedExecutionToken ?? item?.executionContext?.executionToken ?? null,
+    phase: event.phase,
+    result: event.result ?? null,
+    retryIndex: item?.attempts ?? null,
+    verificationAttemptIndex: item?.verificationMeta?.attemptCount ?? null,
+    errorCode: event.errorCode ?? null,
+  }].slice(-MAX_PERSISTED_DIAGNOSTICS);
+}
+
 function retryDelayMs(attempts) {
   return Math.min(5 * 60 * 1000, 30 * 1000 * Math.pow(2, Math.max(0, attempts - 1)));
 }
@@ -440,6 +459,7 @@ function createScheduler({ executor, verifier, persist = () => true, now = () =>
     item.executionResult = executionResult;
     item.executionContext = executionResult?.context ?? item.executionContext ?? null;
     item.lastError = null;
+    appendDiagnostic(next, item, { timestamp: now(), phase: 'execution', result: executionResult?.outcome ?? 'success', errorCode: executionResult?.errorCode ?? null });
     next.updatedAt = now();
     return commit(next, previous, expectedGeneration, { blockOnFailure: true });
   }
@@ -484,6 +504,12 @@ function createScheduler({ executor, verifier, persist = () => true, now = () =>
     metadata.reasonCode = verificationResult.errorCode || verificationResult.verification;
     item.verification = verificationResult.verification;
     item.lastError = verificationResult.error;
+    appendDiagnostic(next, item, {
+      timestamp: verifiedAt,
+      phase: 'verification',
+      result: verificationResult.verification,
+      errorCode: verificationResult.errorCode,
+    });
 
     if (verificationResult.verification === VERIFICATION.VERIFIED) {
       item.status = ITEM_STATUS.COMPLETED;
@@ -578,6 +604,7 @@ function createScheduler({ executor, verifier, persist = () => true, now = () =>
       reasonCode: 'MANUAL_RECHECK',
     };
     item.lastError = null;
+    appendDiagnostic(next, item, { timestamp: now(), phase: 'verification', result: 'manual-recheck', errorCode: 'MANUAL_RECHECK' });
     next.state = SCHEDULE_STATE.RUNNING;
     next.resumedAt = now();
     next.updatedAt = now();
@@ -617,6 +644,7 @@ function createScheduler({ executor, verifier, persist = () => true, now = () =>
       ];
       item.attempts = (item.attempts ?? 0) + 1;
       item.lastError = null;
+      appendDiagnostic(next, item, { timestamp: attemptStartedAt, phase: 'execution', result: 'started', errorCode: null });
       next.updatedAt = now();
 
       const prepared = await commit(next, previous, expectedGeneration, { blockOnFailure: true });
