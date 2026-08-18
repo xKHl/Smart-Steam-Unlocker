@@ -31,6 +31,19 @@ function clamp(value, minimum, maximum) {
   return Math.max(minimum, Math.min(maximum, value));
 }
 
+function normalizeTimelineOptions(options = {}) {
+  const startAt = options.startAt === undefined ? Date.now() : options.startAt;
+  const minIntervalMs = options.minIntervalMs === undefined ? MIN_INTERVAL_MS : options.minIntervalMs;
+  const maxIntervalMs = options.maxIntervalMs === undefined ? MAX_INTERVAL_MS : options.maxIntervalMs;
+  const maxRetries = options.maxRetries === undefined ? 2 : options.maxRetries;
+  if (!Number.isFinite(startAt) || startAt < 0) throw new Error('Timeline start time must be a non-negative finite timestamp.');
+  if (!Number.isInteger(minIntervalMs) || minIntervalMs <= 0 || minIntervalMs > MAX_INTERVAL_MS) throw new Error('Timeline minimum interval is invalid.');
+  if (!Number.isInteger(maxIntervalMs) || maxIntervalMs <= 0 || maxIntervalMs > MAX_INTERVAL_MS) throw new Error('Timeline maximum interval is invalid.');
+  if (minIntervalMs > maxIntervalMs) throw new Error('Timeline minimum interval cannot exceed maximum interval.');
+  if (!Number.isInteger(maxRetries) || maxRetries < 0 || maxRetries > 10) throw new Error('Timeline retry policy is invalid.');
+  return { ...options, startAt: Math.floor(startAt), minIntervalMs, maxIntervalMs, maxRetries };
+}
+
 function rarityIntervalMs(globalPercent, random, options = {}) {
   const minIntervalMs = Number.isFinite(options.minIntervalMs) ? options.minIntervalMs : MIN_INTERVAL_MS;
   const maxIntervalMs = Number.isFinite(options.maxIntervalMs) ? options.maxIntervalMs : MAX_INTERVAL_MS;
@@ -42,15 +55,17 @@ function rarityIntervalMs(globalPercent, random, options = {}) {
 }
 
 function createScheduleTimeline(orderedAchievements, options = {}) {
-  const seed = String(options.seed ?? 'humanized-schedule');
-  const startAt = Number.isFinite(options.startAt) ? Math.floor(options.startAt) : Date.now();
+  if (!Array.isArray(orderedAchievements)) throw new Error('Timeline achievements must be an array.');
+  const normalizedOptions = normalizeTimelineOptions(options);
+  const seed = String(normalizedOptions.seed ?? 'humanized-schedule');
+  const startAt = normalizedOptions.startAt;
   const random = createSeededRandom(seed);
   let cursor = startAt;
 
   return orderedAchievements.map((achievement, index) => {
     const delayMs = index === 0
       ? 0
-      : rarityIntervalMs(achievement.globalPercent, random, options);
+      : rarityIntervalMs(achievement.globalPercent, random, normalizedOptions);
     cursor += delayMs;
 
     return {
@@ -65,7 +80,7 @@ function createScheduleTimeline(orderedAchievements, options = {}) {
       status: 'scheduled',
       verification: 'unverified',
       attempts: 0,
-      maxRetries: Number.isInteger(options.maxRetries) ? Math.max(0, options.maxRetries) : 2,
+      maxRetries: normalizedOptions.maxRetries,
       executionToken: null,
       interruptedExecutionToken: null,
       executionHistory: [],
@@ -83,5 +98,6 @@ module.exports = {
   createSeededRandom,
   createScheduleTimeline,
   hashSeed,
+  normalizeTimelineOptions,
   rarityIntervalMs,
 };
