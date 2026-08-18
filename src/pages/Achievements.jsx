@@ -297,7 +297,7 @@ export default function Achievements({ selectedGame, onChangeGame }) {
       {selectedGame ? (
         <>
           {/* ── Execution Mode ── */}
-          <div className="filter-tabs" role="group" aria-label="Scheduling mode" style={{ alignSelf: 'flex-start', padding: 4 }}>
+          <div className="filter-tabs humanized-mode-control" role="group" aria-label="Achievement progression mode" style={{ padding: 4 }}>
             <button className={`filter-tab${unlockMode === 'instant' ? ' filter-tab-active' : ''}`} onClick={() => setUnlockMode('instant')}>
               Instant
             </button>
@@ -428,6 +428,11 @@ export default function Achievements({ selectedGame, onChangeGame }) {
           )}
 
           {/* ── Toolbar ── */}
+          {unlockMode === 'humanized' && (
+            <div className="humanized-grid-context" role="status">
+              <span>Grid ordered by <strong>{humanizedOrderMode === 'original' ? 'Original Steam order' : humanizedOrderMode === 'easiest-to-hardest' ? 'Easiest → Hardest' : humanizedOrderMode === 'most-common-to-rarest' ? 'Most Common → Rarest' : 'Rarest → Most Common'}</strong>. Select locked achievements to include them in a new schedule.</span>
+            </div>
+          )}
           <div className="toolbar" role="toolbar" aria-label="Achievement filters">
             <div className="search-wrap">
               <Search size={14} className="search-icon" aria-hidden="true" />
