@@ -14,6 +14,7 @@
 const fs   = require('fs');
 const path = require('path');
 const settingsStore = require('./settingsStore');
+const credentialStore = require('./credentialStore');
 const { BrowserWindow } = require('electron');
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -478,7 +479,18 @@ async function getAchievementVerification(appId, achievementId) {
     };
   }
 
-  const apiKey = settingsStore.get('steamApiKey');
+  let apiKey;
+  try {
+    apiKey = credentialStore.getApiKey();
+  } catch (error) {
+    return {
+      success: false,
+      appId,
+      achievementId,
+      error: error?.message || 'Secure Steam credential storage is unavailable.',
+      errorCode: error?.code || 'CREDENTIAL_STORAGE_UNAVAILABLE',
+    };
+  }
   let status = getStatus();
   if (!status.steamId) {
     await initSteam();

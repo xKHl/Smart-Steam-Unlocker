@@ -79,11 +79,13 @@ contextBridge.exposeInMainWorld('steamAPI', {
     },
   },
 
-  // ─── Settings ──────────────────────────────────────────────────────────────
-  settings: {
-    get:    (key)        => ipcRenderer.invoke('settings:get',    key),
-    set:    (key, value) => ipcRenderer.invoke('settings:set',    key, value),
-    delete: (key)        => ipcRenderer.invoke('settings:delete', key),
+  // ─── Credentials ───────────────────────────────────────────────────────────
+  // Status is intentionally non-sensitive. No preload method can retrieve the
+  // stored plaintext Steam Web API key after it has been saved.
+  credentials: {
+    getStatus: () => ipcRenderer.invoke('credentials:get-status'),
+    saveSteamApiKey: (value) => ipcRenderer.invoke('credentials:save-steam-api-key', value),
+    clearSteamApiKey: () => ipcRenderer.invoke('credentials:clear-steam-api-key'),
   },
 
   // ─── App ───────────────────────────────────────────────────────────────────

@@ -32,13 +32,40 @@ async function createWindow() {
       contextIsolation: true,
       nodeIntegration: false,
 
-      // Required: allows preload.js to use require('electron')
-      sandbox: false,
+      // The preload uses only Electron's sandbox-compatible context bridge and
+      // IPC APIs; renderer code never receives Node.js capabilities.
+      sandbox: true,
     },
 
     // Don't flash a blank window — show only when content is ready
     show: false,
   });
+
+  // Harden the packaged renderer without interfering with Vite's development
+  // websocket/runtime. Inline styles remain necessary while the React UI still
+  // uses scoped style props; scripts remain self-only in production.
+  if (!isDev) {
+    const policy = [
+      "default-src 'self'",
+      "script-src 'self'",
+      "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com",
+      "font-src 'self' https://fonts.gstatic.com",
+      "img-src 'self' data: https://media.steampowered.com https://cdn.akamai.steamstatic.com https://steamcdn-a.akamaihd.net",
+      "connect-src 'self' https://api.steampowered.com",
+      "object-src 'none'",
+      "base-uri 'self'",
+      "form-action 'none'",
+      "frame-ancestors 'none'",
+    ].join('; ');
+    mainWindow.webContents.session.webRequest.onHeadersReceived((details, callback) => {
+      callback({
+        responseHeaders: {
+          ...details.responseHeaders,
+          'Content-Security-Policy': [policy],
+        },
+      });
+    });
+  }
 
   // ── Load the renderer ────────────────────────────────────────────────────
   if (isDev) {
