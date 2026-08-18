@@ -54,6 +54,7 @@ contextBridge.exposeInMainWorld('steamAPI', {
   humanized: {
     getStatus: () => ipcRenderer.invoke('humanized:get-status'),
     create: (payload) => ipcRenderer.invoke('humanized:create', payload),
+    replace: (payload) => ipcRenderer.invoke('humanized:replace', payload),
     start: () => ipcRenderer.invoke('humanized:start'),
     pause: () => ipcRenderer.invoke('humanized:pause'),
     clear: () => ipcRenderer.invoke('humanized:clear'),

@@ -135,6 +135,7 @@ function registerIpcHandlers() {
   // ─── Humanized Scheduler (mock execution adapter only) ────────────────────
   ipcMain.handle('humanized:get-status', () => humanizedService.getStatus());
   ipcMain.handle('humanized:create', (_e, payload) => humanizedService.create(payload));
+  ipcMain.handle('humanized:replace', (_e, payload) => humanizedService.replace(payload));
   ipcMain.handle('humanized:start', () => humanizedService.start());
   ipcMain.handle('humanized:pause', () => humanizedService.pause());
   ipcMain.handle('humanized:clear', () => humanizedService.clear());

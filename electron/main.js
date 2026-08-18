@@ -82,7 +82,7 @@ app.whenReady().then(async () => {
   const timerService = require('./timerService');
   const humanizedService = require('./humanizedService');
   timerService.init();
-  humanizedService.init();
+  await humanizedService.init();
 
   // ③ Open the main window
   await createWindow();

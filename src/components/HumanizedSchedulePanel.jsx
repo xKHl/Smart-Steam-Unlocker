@@ -47,8 +47,9 @@ export default function HumanizedSchedulePanel({ selectedGame, achievements, sel
     [achievements, selectedIds],
   );
   const scheduleMatchesGame = !schedule || String(schedule.appId) === String(selectedGame?.appId);
-  const nextItem = schedule?.items?.find((item) => ['scheduled', 'retry', 'executing'].includes(item.status));
+  const nextItem = schedule?.items?.find((item) => ['scheduled', 'retry', 'executing', 'verification-required'].includes(item.status));
   const completedPercent = summary?.total ? Math.round((summary.completed / summary.total) * 100) : 0;
+  const runtimeError = status.runtime?.error?.message || '';
 
   async function invoke(action) {
     setIsWorking(true);
@@ -122,7 +123,7 @@ export default function HumanizedSchedulePanel({ selectedGame, achievements, sel
           <div style={{ display: 'flex', justifyContent: 'space-between', gap: 12, alignItems: 'center', marginTop: 16, fontSize: 13 }}>
             <div>
               <strong style={{ color: 'var(--text-primary)', textTransform: 'capitalize' }}>{schedule.state}</strong>
-              <span style={{ color: 'var(--text-muted)' }}> · {summary?.completed ?? 0} of {summary?.total ?? 0} verified</span>
+              <span style={{ color: 'var(--text-muted)' }}> · {summary?.completed ?? 0} of {summary?.total ?? 0} verified{summary?.verificationRequired ? ` · ${summary.verificationRequired} need verification` : ''}</span>
             </div>
             <div className="timer-actions">
               {schedule.state === 'running' ? (
@@ -158,7 +159,11 @@ export default function HumanizedSchedulePanel({ selectedGame, achievements, sel
 
       {schedule && !scheduleMatchesGame && (
         <div style={{ display: 'flex', gap: 8, alignItems: 'center', marginTop: 12, color: '#fbbf24', fontSize: 12 }}>
-          <CircleAlert size={15} /> A schedule exists for another game. Clear it before creating one for this game.
+          <CircleAlert size={15} />
+          <span>A schedule exists for another game. Discard it explicitly before creating one for this game.</span>
+          <button className="btn-danger" style={{ marginLeft: 'auto', padding: '4px 8px', fontSize: 11 }} onClick={() => invoke(() => window.steamAPI.humanized.clear())} disabled={isWorking}>
+            Discard Existing Schedule
+          </button>
         </div>
       )}
       {schedule?.state === 'completed' && (
@@ -171,7 +176,7 @@ export default function HumanizedSchedulePanel({ selectedGame, achievements, sel
           <RotateCcw size={15} /> One or more mock outcomes failed after their configured retry limit. Clear and regenerate to retry.
         </div>
       )}
-      {error && <p style={{ color: '#fca5a5', fontSize: 12, margin: '12px 0 0' }}>{error}</p>}
+      {(runtimeError || error) && <p style={{ color: '#fca5a5', fontSize: 12, margin: '12px 0 0' }}>{runtimeError || error}</p>}
     </div>
   );
 }

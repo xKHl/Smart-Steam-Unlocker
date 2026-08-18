@@ -1,34 +1,46 @@
 /**
  * Electron integration for the Humanized scheduler.
- * The scheduler is intentionally connected only to a mock adapter in this release.
+ * This service intentionally wires only Steam-independent mock execution and
+ * verification adapters. A future production adapter belongs at this boundary.
  */
 
 const { BrowserWindow } = require('electron');
 const settingsStore = require('./settingsStore');
 const { createMockExecutionAdapter } = require('./humanized/mockExecutionAdapter');
-const { createSchedule, createScheduler, summarize } = require('./humanized/schedulerEngine');
+const { createMockVerifier } = require('./humanized/mockVerifier');
+const { assertScheduleReplacementAllowed } = require('./humanized/schedulePolicy');
+const { SchedulerBusyError, createSchedule, createScheduler } = require('./humanized/schedulerEngine');
 
 const STORAGE_KEY = 'humanizedSchedulerState';
 let engine = null;
 let tickTimer = null;
+let serviceFault = null;
 
-function emitUpdate(schedule, summary) {
+function enrichStatus(status) {
+  const runtime = {
+    ...(status.runtime ?? {}),
+    error: serviceFault ?? status.runtime?.error ?? null,
+  };
+  return { ...status, runtime, adapter: 'mock', verifier: 'mock' };
+}
+
+function emitUpdate(_schedule, _summary, _runtime) {
+  const status = enrichStatus(ensureEngine().getStatus());
   BrowserWindow.getAllWindows().forEach((window) => {
-    if (!window.isDestroyed()) {
-      window.webContents.send('humanized:update', { schedule, summary, adapter: 'mock' });
-    }
+    if (!window.isDestroyed()) window.webContents.send('humanized:update', status);
   });
 }
 
 function persist(schedule) {
-  if (schedule) settingsStore.set(STORAGE_KEY, schedule);
-  else settingsStore.delete(STORAGE_KEY);
+  if (schedule) return settingsStore.set(STORAGE_KEY, schedule);
+  return settingsStore.delete(STORAGE_KEY);
 }
 
 function ensureEngine() {
   if (engine) return engine;
   engine = createScheduler({
     executor: createMockExecutionAdapter(),
+    verifier: createMockVerifier(),
     persist,
     onUpdate: emitUpdate,
   });
@@ -43,8 +55,9 @@ function stopTickLoop() {
 async function tick() {
   const scheduler = ensureEngine();
   await scheduler.processDue();
-  const schedule = scheduler.getSchedule();
-  if (!schedule || schedule.state !== 'running') stopTickLoop();
+  const status = scheduler.getStatus();
+  if (!status.schedule || status.schedule.state !== 'running') stopTickLoop();
+  return enrichStatus(status);
 }
 
 function ensureTickLoop() {
@@ -54,40 +67,67 @@ function ensureTickLoop() {
   }, 1000);
 }
 
-function init() {
-  const savedSchedule = settingsStore.get(STORAGE_KEY);
-  if (savedSchedule) ensureEngine().load(savedSchedule);
+async function init() {
+  try {
+    const savedSchedule = settingsStore.get(STORAGE_KEY);
+    if (savedSchedule) await ensureEngine().load(savedSchedule);
+  } catch (error) {
+    serviceFault = {
+      code: error?.code || 'PERSISTENCE_FAILED',
+      message: error instanceof Error ? error.message : String(error),
+    };
+  }
+  return getStatus();
 }
 
 function getStatus() {
-  const schedule = ensureEngine().getSchedule();
-  return { schedule, summary: summarize(schedule), adapter: 'mock' };
+  return enrichStatus(ensureEngine().getStatus());
 }
 
-function create(payload) {
+async function create(payload, { replace = false } = {}) {
+  const scheduler = ensureEngine();
+  const current = scheduler.getSchedule();
+  const requestedAppId = payload?.appId;
+
+  assertScheduleReplacementAllowed(current, requestedAppId, { replace });
+  if (scheduler.isProcessing()) throw new SchedulerBusyError('Cannot create or replace a schedule while execution is in flight.');
+
   stopTickLoop();
   const nextSchedule = createSchedule(payload);
-  ensureEngine().setSchedule(nextSchedule);
+  await scheduler.setSchedule(nextSchedule);
+  serviceFault = null;
   return getStatus();
 }
 
-function start() {
-  ensureEngine().start();
+async function start() {
+  await ensureEngine().start();
+  serviceFault = null;
   ensureTickLoop();
-  tick().catch(() => stopTickLoop());
+  try {
+    await tick();
+  } catch (error) {
+    stopTickLoop();
+    throw error;
+  }
   return getStatus();
 }
 
-function pause() {
+async function pause() {
   stopTickLoop();
-  ensureEngine().pause();
+  await ensureEngine().pause();
+  serviceFault = null;
   return getStatus();
 }
 
-function clear() {
+async function clear() {
   stopTickLoop();
-  ensureEngine().clear();
+  await ensureEngine().clear();
+  serviceFault = null;
   return getStatus();
+}
+
+async function replace(payload) {
+  return create(payload, { replace: true });
 }
 
 module.exports = {
@@ -96,5 +136,6 @@ module.exports = {
   getStatus,
   init,
   pause,
+  replace,
   start,
 };
