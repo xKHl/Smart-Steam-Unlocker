@@ -2,6 +2,7 @@ import React, { useState, useEffect, useMemo } from 'react';
 import { Search, Filter, ChevronRight, RotateCcw, Clock, Play, Square, Settings2, Trash2, Trophy, Loader2 } from 'lucide-react';
 import AchievementCard from '../components/AchievementCard';
 import HumanizedSchedulePanel from '../components/HumanizedSchedulePanel';
+import { achievementOrderRevision, projectAchievementDisplay } from '../lib/achievementDisplayProjection.mjs';
 
 const FILTERS = ['All', 'Locked', 'Unlocked'];
 
@@ -38,7 +39,7 @@ export default function Achievements({ selectedGame, onChangeGame }) {
   const [fixedMins, setFixedMins] = useState(1);
   const [unlockMode, setUnlockMode] = useState('instant');
   const [humanizedOrderMode, setHumanizedOrderMode] = useState('original');
-  const [humanizedOrderedIds, setHumanizedOrderedIds] = useState(null);
+  const [humanizedOrderCache, setHumanizedOrderCache] = useState({ revision: '', byMode: {} });
 
   // ── Initialization ──────────────────────────────────────────────────────
   useEffect(() => {
@@ -139,44 +140,47 @@ export default function Achievements({ selectedGame, onChangeGame }) {
   }, [selectedGame]);
 
   // ── Derived State ───────────────────────────────────────────────────────
-  // Humanized display order is fetched from the main-process canonical ordering
-  // module. This changes presentation only; the persisted schedule is never read
-  // or rewritten when the user changes this selector.
+  // The main process remains the sole ordering authority. Fetch every canonical
+  // mode for the current achievement revision once, then derive the visible grid
+  // from the selected mode synchronously alongside the existing filters. A mode
+  // click therefore updates the rendered cards immediately from this cache and
+  // never reads or changes a persisted Humanized schedule.
+  const orderRevision = useMemo(() => achievementOrderRevision(achievements), [achievements]);
+
   useEffect(() => {
     let cancelled = false;
-    if (unlockMode !== 'humanized' || !window.steamAPI?.humanized?.orderAchievements) {
-      setHumanizedOrderedIds(null);
+    const orderAchievements = window.steamAPI?.humanized?.orderAchievements;
+    if (!orderAchievements || !achievements.length) {
+      setHumanizedOrderCache({ revision: orderRevision, byMode: {} });
       return () => { cancelled = true; };
     }
 
-    window.steamAPI.humanized.orderAchievements(achievements, humanizedOrderMode)
-      .then((ordered) => {
-        if (!cancelled) setHumanizedOrderedIds(Array.isArray(ordered) ? ordered.map((achievement) => achievement.id) : []);
-      })
-      .catch(() => {
-        // Preserve a safe original-order view if the display-only bridge is unavailable.
-        if (!cancelled) setHumanizedOrderedIds(null);
-      });
+    const modes = ['original', 'easiest-to-hardest', 'most-common-to-rarest', 'rarest-to-most-common'];
+    Promise.all(modes.map(async (mode) => {
+      const ordered = await orderAchievements(achievements, mode);
+      return [mode, Array.isArray(ordered) ? ordered.map((achievement) => achievement.id) : []];
+    })).then((entries) => {
+      if (!cancelled) setHumanizedOrderCache({ revision: orderRevision, byMode: Object.fromEntries(entries) });
+    }).catch(() => {
+      // Instant mode stays in Steam order. Humanized falls back safely until the
+      // canonical bridge is available rather than introducing renderer sorting.
+      if (!cancelled) setHumanizedOrderCache({ revision: orderRevision, byMode: {} });
+    });
 
     return () => { cancelled = true; };
-  }, [achievements, humanizedOrderMode, unlockMode]);
+  }, [achievements, orderRevision]);
 
-  const achievementDisplaySource = useMemo(() => {
-    if (unlockMode !== 'humanized' || !humanizedOrderedIds) return achievements;
-    const byId = new Map(achievements.map((achievement) => [achievement.id, achievement]));
-    return humanizedOrderedIds.map((id) => byId.get(id)).filter(Boolean);
-  }, [achievements, humanizedOrderedIds, unlockMode]);
+  const canonicalOrderedIds = humanizedOrderCache.revision === orderRevision
+    ? humanizedOrderCache.byMode[humanizedOrderMode]
+    : null;
 
-  const displayedAchievements = useMemo(() => {
-    let list = achievementDisplaySource;
-    const q = search.trim().toLowerCase();
-    if (q) list = list.filter(a => (a.name || a.id).toLowerCase().includes(q));
-    
-    if (filter === 'Locked')   list = list.filter(a => !a.unlocked);
-    if (filter === 'Unlocked') list = list.filter(a => a.unlocked);
-    
-    return list;
-  }, [achievementDisplaySource, search, filter]);
+  const displayedAchievements = useMemo(() => projectAchievementDisplay({
+    achievements,
+    orderedIds: canonicalOrderedIds,
+    useCanonicalOrder: unlockMode === 'humanized',
+    search,
+    filter,
+  }), [achievements, canonicalOrderedIds, filter, search, unlockMode]);
 
   // Set of IDs currently in the queue
   const queueIds = useMemo(() => new Set(timerStatus.queue.map(q => q.id)), [timerStatus.queue]);
