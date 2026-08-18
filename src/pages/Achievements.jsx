@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import { Search, Filter, ChevronRight, RotateCcw, Clock, Play, Square, Settings2, Trash2, Trophy, Loader2 } from 'lucide-react';
 import AchievementCard from '../components/AchievementCard';
+import HumanizedSchedulePanel from '../components/HumanizedSchedulePanel';
 
 const FILTERS = ['All', 'Locked', 'Unlocked'];
 
@@ -23,6 +24,7 @@ export default function Achievements({ selectedGame, onChangeGame }) {
   const [achievements, setAchievements] = useState([]);
   const [selectedIds, setSelectedIds] = useState(new Set());
   const [isLoading, setIsLoading] = useState(false);
+  const [loadError, setLoadError] = useState('');
   
   // ── Timer State ─────────────────────────────────────────────────────────
   const [timerStatus, setTimerStatus] = useState({
@@ -34,6 +36,7 @@ export default function Achievements({ selectedGame, onChangeGame }) {
   const [varianceMins, setVarianceMins] = useState(15);
   const [useFixedTime, setUseFixedTime] = useState(false);
   const [fixedMins, setFixedMins] = useState(1);
+  const [unlockMode, setUnlockMode] = useState('instant');
 
   // ── Initialization ──────────────────────────────────────────────────────
   useEffect(() => {
@@ -43,6 +46,7 @@ export default function Achievements({ selectedGame, onChangeGame }) {
     const fetchAchievements = async () => {
       if (!window.steamAPI) return;
       setIsLoading(true);
+      setLoadError('');
       try {
         const [achRes, pctRes] = await Promise.all([
           window.steamAPI.steam.getAchievements(selectedGame.appId),
@@ -70,9 +74,13 @@ export default function Achievements({ selectedGame, onChangeGame }) {
           });
 
           setAchievements(merged);
+        } else {
+          setAchievements([]);
+          setLoadError(achRes?.error || 'Steam could not return achievement data for this game.');
         }
       } catch (err) {
-        console.error(err);
+        setAchievements([]);
+        setLoadError('Could not load achievements. Check the Steam connection and try again.');
       } finally {
         setIsLoading(false);
       }
@@ -257,7 +265,17 @@ export default function Achievements({ selectedGame, onChangeGame }) {
 
       {selectedGame ? (
         <>
-          {/* ── Smart Timer Panel ── */}
+          {/* ── Execution Mode ── */}
+          <div className="filter-tabs" role="group" aria-label="Scheduling mode" style={{ alignSelf: 'flex-start', padding: 4 }}>
+            <button className={`filter-tab${unlockMode === 'instant' ? ' filter-tab-active' : ''}`} onClick={() => setUnlockMode('instant')}>
+              Instant
+            </button>
+            <button className={`filter-tab${unlockMode === 'humanized' ? ' filter-tab-active' : ''}`} onClick={() => setUnlockMode('humanized')}>
+              Humanized
+            </button>
+          </div>
+
+          {unlockMode === 'instant' ? (
           <div className="timer-panel">
             <div className="timer-panel-header">
               <h2 className="timer-panel-title">
@@ -367,6 +385,14 @@ export default function Achievements({ selectedGame, onChangeGame }) {
               </div>
             )}
           </div>
+          ) : (
+            <HumanizedSchedulePanel
+              selectedGame={selectedGame}
+              achievements={achievements}
+              selectedIds={selectedIds}
+              onScheduleCreated={() => setSelectedIds(new Set())}
+            />
+          )}
 
           {/* ── Toolbar ── */}
           <div className="toolbar" role="toolbar" aria-label="Achievement filters">
@@ -414,6 +440,17 @@ export default function Achievements({ selectedGame, onChangeGame }) {
               <Loader2 size={36} color="#a78bfa" className="animate-spin" />
               <h2 className="empty-title" style={{ marginTop: 16 }}>Fetching achievements...</h2>
               <p className="empty-sub">Syncing data with Steam servers</p>
+            </div>
+          ) : loadError ? (
+            <div className="empty-state" style={{ marginTop: 40 }}>
+              <div className="empty-icon-wrap" style={{ width: 60, height: 60, marginBottom: 16 }}>
+                <Trophy size={28} color="#fca5a5" />
+              </div>
+              <h2 className="empty-title">Could not load achievements</h2>
+              <p className="empty-sub">{loadError}</p>
+              <button className="btn-secondary" style={{ marginTop: 16 }} onClick={() => window.location.reload()}>
+                Try Again
+              </button>
             </div>
           ) : (
             <>
