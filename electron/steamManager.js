@@ -517,8 +517,11 @@ async function getAchievementVerification(appId, achievementId) {
     await initSteam();
     status = getStatus();
   }
-  if (!apiKey || !status.steamId) {
-    return { success: false, appId, achievementId, error: 'Steam identity or Web API key is unavailable.', errorCode: 'STEAM_READ_UNAVAILABLE' };
+  if (!apiKey) {
+    return { success: false, appId, achievementId, error: 'Steam Web API credential is unavailable.', errorCode: 'MISSING_API_KEY' };
+  }
+  if (!status.steamId) {
+    return { success: false, appId, achievementId, error: 'Steam player identity is unavailable.', errorCode: 'MISSING_STEAM_ID' };
   }
 
   let lastResult = null;

@@ -36,7 +36,7 @@ test('player achievement contract parses confirmed unlocked and confirmed not-un
 });
 
 test('player achievement contract normalizes auth, rate-limit, and service failures', async () => {
-  for (const [status, expected] of [[401, STEAM_READ_ERROR.INVALID_API_KEY], [403, STEAM_READ_ERROR.INVALID_API_KEY], [429, STEAM_READ_ERROR.RATE_LIMITED], [503, STEAM_READ_ERROR.STEAM_SERVICE_UNAVAILABLE]]) {
+  for (const [status, expected] of [[401, STEAM_READ_ERROR.INVALID_API_KEY], [403, STEAM_READ_ERROR.UNAUTHORIZED], [429, STEAM_READ_ERROR.RATE_LIMITED], [503, STEAM_READ_ERROR.STEAM_SERVICE_UNAVAILABLE]]) {
     const client = clientFor([response({ status })]);
     const result = await client.getPlayerAchievementState(baseRequest);
     assert.equal(result.success, false);

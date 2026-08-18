@@ -23,7 +23,8 @@ const STEAM_READ_ERROR = Object.freeze({
 });
 
 function classifyHttpStatus(status) {
-  if (status === 401 || status === 403) return STEAM_READ_ERROR.INVALID_API_KEY;
+  if (status === 401) return STEAM_READ_ERROR.INVALID_API_KEY;
+  if (status === 403) return STEAM_READ_ERROR.UNAUTHORIZED;
   if (status === 429) return STEAM_READ_ERROR.RATE_LIMITED;
   if (status >= 500 && status <= 599) return STEAM_READ_ERROR.STEAM_SERVICE_UNAVAILABLE;
   if (status >= 400 && status <= 499) return STEAM_READ_ERROR.HTTP_CLIENT_ERROR;
