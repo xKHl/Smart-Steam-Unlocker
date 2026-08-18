@@ -45,12 +45,13 @@ contextBridge.exposeInMainWorld('steamAPI', {
       ipcRenderer.invoke('steam:unlock-achievement', { appId, achievementId }),
 
     onAchievementUnlocked: (cb) => {
-      ipcRenderer.removeAllListeners('steam:achievement-unlocked');
-      ipcRenderer.on('steam:achievement-unlocked', (_e, achievementId) => cb(achievementId));
+      const listener = (_e, achievementId) => cb(achievementId);
+      ipcRenderer.on('steam:achievement-unlocked', listener);
+      return () => ipcRenderer.removeListener('steam:achievement-unlocked', listener);
     },
   },
 
-  // ─── Humanized Scheduler (mock execution adapter) ─────────────────────────
+  // ─── Humanized Scheduler ─────────────────────────────────────────────────
   humanized: {
     getStatus: () => ipcRenderer.invoke('humanized:get-status'),
     orderAchievements: (achievements, orderMode) => ipcRenderer.invoke('humanized:order-achievements', { achievements, orderMode }),
@@ -61,8 +62,9 @@ contextBridge.exposeInMainWorld('steamAPI', {
     recheckNow: () => ipcRenderer.invoke('humanized:recheck-now'),
     clear: () => ipcRenderer.invoke('humanized:clear'),
     onUpdate: (cb) => {
-      ipcRenderer.removeAllListeners('humanized:update');
-      ipcRenderer.on('humanized:update', (_e, status) => cb(status));
+      const listener = (_e, status) => cb(status);
+      ipcRenderer.on('humanized:update', listener);
+      return () => ipcRenderer.removeListener('humanized:update', listener);
     },
   },
 
@@ -74,9 +76,9 @@ contextBridge.exposeInMainWorld('steamAPI', {
     clearQueue: () => ipcRenderer.invoke('timer:clear-queue'),
     getStatus:  () => ipcRenderer.invoke('timer:get-status'),
     onUpdate:   (cb) => {
-      // Remove any previous listener to avoid duplicates if re-rendered
-      ipcRenderer.removeAllListeners('timer:update');
-      ipcRenderer.on('timer:update', (_e, status) => cb(status));
+      const listener = (_e, status) => cb(status);
+      ipcRenderer.on('timer:update', listener);
+      return () => ipcRenderer.removeListener('timer:update', listener);
     },
   },
 
@@ -92,7 +94,12 @@ contextBridge.exposeInMainWorld('steamAPI', {
   // ─── App ───────────────────────────────────────────────────────────────────
   app: {
     getVersion:     () => ipcRenderer.invoke('app:get-version'),
+    getInitialState: () => ipcRenderer.invoke('app:get-initial-state'),
     openExternal:   (url) => ipcRenderer.invoke('app:open-external', url),
-    onInitialState: (cb) => ipcRenderer.once('app:initial-state', (_e, s) => cb(s)),
+    onInitialState: (cb) => {
+      const listener = (_e, state) => cb(state);
+      ipcRenderer.once('app:initial-state', listener);
+      return () => ipcRenderer.removeListener('app:initial-state', listener);
+    },
   },
 });

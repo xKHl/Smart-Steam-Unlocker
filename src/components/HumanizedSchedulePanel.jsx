@@ -8,13 +8,14 @@ import {
   Clock3,
   Pause,
   Play,
+  RefreshCw,
   Sparkles,
   Trash2,
 } from 'lucide-react';
 
 const ORDER_OPTIONS = [
   { value: 'original', label: 'Original', description: 'Steam’s original achievement order' },
-  { value: 'easiest-to-hardest', label: 'Easiest → Hardest', description: 'Start with the most commonly completed achievements' },
+  { value: 'easiest-to-hardest', label: 'Ease proxy: common → rare', description: 'Completion-rate proxy; not measured gameplay difficulty' },
   { value: 'most-common-to-rarest', label: 'Most Common → Rarest', description: 'Progress from common to rare achievements' },
   { value: 'rarest-to-most-common', label: 'Rarest → Most Common', description: 'Start with the least commonly completed achievements' },
 ];
@@ -71,9 +72,12 @@ export default function HumanizedSchedulePanel({ selectedGame, achievements, sel
     window.steamAPI?.humanized?.getStatus().then(applyStatus).catch(() => {
       if (active) setError('Humanized Mode is unavailable. Restart the application and try again.');
     });
-    window.steamAPI?.humanized?.onUpdate(applyStatus);
+    const unsubscribe = window.steamAPI?.humanized?.onUpdate(applyStatus);
 
-    return () => { active = false; };
+    return () => {
+      active = false;
+      unsubscribe?.();
+    };
   }, []);
 
   const schedule = status.schedule;
@@ -84,13 +88,21 @@ export default function HumanizedSchedulePanel({ selectedGame, achievements, sel
   );
   const scheduleMatchesGame = !schedule || String(schedule.appId) === String(selectedGame?.appId);
   const activeItem = schedule?.items?.find((item) => ['executing', 'verification-required'].includes(item.status));
+  const verificationItem = schedule?.items?.find((item) => item.status === 'verification-required');
   const nextItem = schedule?.items?.find((item) => ['scheduled', 'retry'].includes(item.status));
+  const nextVerificationAt = verificationItem?.verificationMeta?.nextVerificationAt;
+  const verificationReason = verificationItem?.verificationMeta?.reasonCode;
   const completedPercent = summary?.total ? Math.round((summary.completed / summary.total) * 100) : 0;
   const runtimeError = status.runtime?.error?.message || '';
   const itemError = schedule?.items?.find((item) => item.lastError)?.lastError || '';
   const scheduleMeta = scheduleStateMeta(schedule?.state);
   const visibleItems = showAllItems ? (schedule?.items || []) : (schedule?.items || []).slice(0, 6);
   const currentOrder = ORDER_OPTIONS.find((option) => option.value === orderMode) || ORDER_OPTIONS[0];
+  const verificationDetail = verificationItem
+    ? (verificationItem.verificationMeta?.exhausted
+      ? `Verification needs attention${verificationReason ? ` (${verificationReason.replaceAll('_', ' ').toLowerCase()})` : ''}.`
+      : `Verification attempt ${verificationItem.verificationMeta?.attemptCount ?? 0}; next check ${formatDate(nextVerificationAt)}.`)
+    : null;
 
   async function invoke(action) {
     setIsWorking(true);
@@ -218,9 +230,12 @@ export default function HumanizedSchedulePanel({ selectedGame, achievements, sel
           <div className="humanized-schedule-toolbar">
             <div>
               <h3>Your schedule</h3>
-              <p>{schedule.orderMode === 'original' ? 'Original Steam order' : ORDER_OPTIONS.find((option) => option.value === schedule.orderMode)?.label || 'Custom order'} · {summary?.verificationRequired ? `${summary.verificationRequired} waiting for confirmation` : 'Ready to continue'}</p>
+              <p>{schedule.orderMode === 'original' ? 'Original Steam order' : ORDER_OPTIONS.find((option) => option.value === schedule.orderMode)?.label || 'Custom order'} · {verificationDetail || (summary?.verificationRequired ? `${summary.verificationRequired} awaiting verification` : 'Ready to continue')}</p>
             </div>
             <div className="humanized-actions">
+              {verificationItem && (
+                <button className="btn-secondary" onClick={() => invoke(() => window.steamAPI.humanized.recheckNow())} disabled={isWorking}><RefreshCw size={14} /> Recheck now</button>
+              )}
               {schedule.state === 'running' ? (
                 <button className="btn-secondary" onClick={() => invoke(() => window.steamAPI.humanized.pause())} disabled={isWorking}><Pause size={14} /> Pause</button>
               ) : schedule.state !== 'completed' && schedule.state !== 'failed' ? (
@@ -239,8 +254,8 @@ export default function HumanizedSchedulePanel({ selectedGame, achievements, sel
                   <div className="humanized-timeline-content">
                     <div className="humanized-timeline-title-row">
                       <h4>{item.name || item.id}</h4>
-                      <time dateTime={Number.isFinite(item.nextAttemptAt || item.scheduledAt) ? new Date(item.nextAttemptAt || item.scheduledAt).toISOString() : undefined}>
-                        <Clock3 size={13} /> {formatDate(item.nextAttemptAt || item.scheduledAt)}
+                      <time dateTime={Number.isFinite(item.verificationMeta?.nextVerificationAt || item.nextAttemptAt || item.scheduledAt) ? new Date(item.verificationMeta?.nextVerificationAt || item.nextAttemptAt || item.scheduledAt).toISOString() : undefined}>
+                        <Clock3 size={13} /> {item.status === 'verification-required' ? `Recheck ${formatDate(item.verificationMeta?.nextVerificationAt)}` : formatDate(item.nextAttemptAt || item.scheduledAt)}
                       </time>
                     </div>
                     <div className="humanized-timeline-meta">

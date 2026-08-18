@@ -43,101 +43,82 @@ export default function Achievements({ selectedGame, onChangeGame }) {
 
   // ── Initialization ──────────────────────────────────────────────────────
   useEffect(() => {
-    if (!selectedGame) return;
+    if (!selectedGame) return undefined;
+    let active = true;
+    const appId = selectedGame.appId;
 
-    // Fetch actual achievements and global percentages from Steam
+    // Each selected-game revision owns its responses. A slower request for the
+    // previous game is ignored instead of overwriting the current achievement grid.
     const fetchAchievements = async () => {
       if (!window.steamAPI) return;
-      setIsLoading(true);
-      setLoadError('');
+      if (active) {
+        setIsLoading(true);
+        setLoadError('');
+      }
       try {
         const [achRes, pctRes] = await Promise.all([
-          window.steamAPI.steam.getAchievements(selectedGame.appId),
-          window.steamAPI.steam.getGlobalAchievementPercentages(selectedGame.appId)
+          window.steamAPI.steam.getAchievements(appId),
+          window.steamAPI.steam.getGlobalAchievementPercentages(appId),
         ]);
+        if (!active) return;
 
         if (achRes?.success) {
-          let merged = achRes.achievements;
-          
-          if (pctRes?.success && pctRes.percentages) {
-            const pctMap = {};
-            pctRes.percentages.forEach(p => { pctMap[p.name] = p.percent; });
-            
-            merged = merged.map(a => (
-              pctMap[a.id] !== undefined
-                ? { ...a, globalPercent: pctMap[a.id] }
-                : a
-            ));
-          }
-
-          // Auto-Sort logic: Strictly chronological using the internal schema index
-          merged = [...merged].sort((a, b) => {
-             const indexA = a.originalIndex ?? 0;
-             const indexB = b.originalIndex ?? 0;
-             return indexA - indexB;
-          });
-
+          const pctMap = Object.fromEntries((pctRes?.success && Array.isArray(pctRes.percentages) ? pctRes.percentages : [])
+            .map((percentage) => [percentage.name, percentage.percent]));
+          const merged = achRes.achievements
+            .map((achievement) => (pctMap[achievement.id] !== undefined ? { ...achievement, globalPercent: pctMap[achievement.id] } : achievement))
+            .sort((left, right) => (left.originalIndex ?? 0) - (right.originalIndex ?? 0));
           setAchievements(merged);
         } else {
           setAchievements([]);
           setLoadError(achRes?.error || 'Steam could not return achievement data for this game.');
         }
-      } catch (err) {
-        setAchievements([]);
-        setLoadError('Could not load achievements. Check the Steam connection and try again.');
+      } catch {
+        if (active) {
+          setAchievements([]);
+          setLoadError('Could not load achievements. Check the Steam connection and try again.');
+        }
       } finally {
-        setIsLoading(false);
+        if (active) setIsLoading(false);
       }
     };
-    
+
     fetchAchievements();
-
-    // Fetch persisted timer status
-    window.steamAPI?.timer.getStatus().then(status => {
-      if (status) {
-        setTimerStatus(status);
-        if (status.baseMultiplier > 0) setBaseMultiplier(status.baseMultiplier);
-        if (status.varianceMins > 0) setVarianceMins(status.varianceMins);
-        if (status.fixedMins !== null && status.fixedMins !== undefined) {
-          setUseFixedTime(true);
-          setFixedMins(status.fixedMins);
-        }
+    window.steamAPI?.timer.getStatus().then((timer) => {
+      if (!active || !timer) return;
+      setTimerStatus(timer);
+      if (timer.baseMultiplier > 0) setBaseMultiplier(timer.baseMultiplier);
+      if (timer.varianceMins > 0) setVarianceMins(timer.varianceMins);
+      if (timer.fixedMins !== null && timer.fixedMins !== undefined) {
+        setUseFixedTime(true);
+        setFixedMins(timer.fixedMins);
       }
-    });
+    }).catch(() => {});
 
-    // Subscribe to live timer ticks
-    window.steamAPI?.timer.onUpdate((status) => {
-      setTimerStatus(status);
-      
-      // If the timer stopped and queue finished, refresh achievements to reflect unlocked state
-      if (!status.isActive && status.queue.length === 0 && status.unlockedCount > 0) {
-        fetchAchievements();
-      }
+    const stopTimerSubscription = window.steamAPI?.timer.onUpdate((timer) => {
+      if (!active) return;
+      setTimerStatus(timer);
+      if (!timer.isActive && timer.queue.length === 0 && timer.unlockedCount > 0) fetchAchievements();
     });
-
-    // Subscribe to real-time unlock events
-    window.steamAPI?.steam.onAchievementUnlocked((achievementId) => {
-      console.log('Real-time unlock received:', achievementId);
-      
-      // Instantly update the achievement array to reflect unlocked state & icon
-      setAchievements(prev => prev.map(ach => 
-        ach.id === achievementId 
-          ? { ...ach, unlocked: true, iconUrl: ach.iconColorUrl || ach.iconUrl }
-          : ach
-      ));
-      
-      // Ensure it is removed from the manual selection set if it was selected
-      setSelectedIds(prev => {
-        const next = new Set(prev);
-        if (next.has(achievementId)) {
-          next.delete(achievementId);
-        }
+    const stopUnlockSubscription = window.steamAPI?.steam.onAchievementUnlocked((achievementId) => {
+      if (!active) return;
+      setAchievements((previous) => previous.map((achievement) => (
+        achievement.id === achievementId ? { ...achievement, unlocked: true, iconUrl: achievement.iconColorUrl || achievement.iconUrl } : achievement
+      )));
+      setSelectedIds((previous) => {
+        const next = new Set(previous);
+        next.delete(achievementId);
         return next;
       });
     });
 
     setSelectedIds(new Set());
-  }, [selectedGame]);
+    return () => {
+      active = false;
+      stopTimerSubscription?.();
+      stopUnlockSubscription?.();
+    };
+  }, [selectedGame?.appId]);
 
   // ── Derived State ───────────────────────────────────────────────────────
   // The main process remains the sole ordering authority. Fetch every canonical

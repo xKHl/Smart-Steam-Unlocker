@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import {
   AlertCircle,
@@ -44,6 +44,7 @@ function formatCompletion(unlocked, total) {
 export default function Dashboard({ steamStatus, selectedGame, onSteamReconnect }) {
   const navigate = useNavigate();
   const [isReconnecting, setIsReconnecting] = useState(false);
+  const overviewRequestVersion = useRef(0);
   const [overview, setOverview] = useState({
     phase: 'loading',
     games: [],
@@ -53,6 +54,7 @@ export default function Dashboard({ steamStatus, selectedGame, onSteamReconnect 
   });
 
   const loadOverview = useCallback(async () => {
+    const requestVersion = ++overviewRequestVersion.current;
     if (!steamStatus.connected) {
       setOverview({ phase: 'unavailable', games: [], achievementResult: null, errorCode: 'STEAM_NOT_CONNECTED', detail: '' });
       return;
@@ -61,6 +63,7 @@ export default function Dashboard({ steamStatus, selectedGame, onSteamReconnect 
     setOverview((current) => ({ ...current, phase: 'loading', errorCode: null, detail: '' }));
     try {
       const libraryResult = await window.steamAPI?.steam.getOwnedGames({ forceRefresh: false });
+      if (requestVersion !== overviewRequestVersion.current) return;
       if (!libraryResult?.success) {
         setOverview({
           phase: 'error', games: [], achievementResult: null,
@@ -73,8 +76,10 @@ export default function Dashboard({ steamStatus, selectedGame, onSteamReconnect 
       if (selectedGame?.appId) {
         achievementResult = await window.steamAPI?.steam.getAchievements(selectedGame.appId);
       }
+      if (requestVersion !== overviewRequestVersion.current) return;
       setOverview({ phase: 'ready', games: libraryResult.games || [], achievementResult, errorCode: null, detail: '' });
     } catch (error) {
+      if (requestVersion !== overviewRequestVersion.current) return;
       setOverview({ phase: 'error', games: [], achievementResult: null, errorCode: 'FETCH_ERROR', detail: error instanceof Error ? error.message : '' });
     }
   }, [selectedGame?.appId, steamStatus.connected]);
@@ -83,7 +88,8 @@ export default function Dashboard({ steamStatus, selectedGame, onSteamReconnect 
 
   useEffect(() => {
     const handleUnlock = () => loadOverview();
-    window.steamAPI?.steam.onAchievementUnlocked(handleUnlock);
+    const unsubscribe = window.steamAPI?.steam.onAchievementUnlocked(handleUnlock);
+    return () => unsubscribe?.();
   }, [loadOverview]);
 
   const handleReconnect = async () => {
@@ -105,11 +111,11 @@ export default function Dashboard({ steamStatus, selectedGame, onSteamReconnect 
 
     return [
       {
-        id: 'stat-games', icon: Gamepad2, label: 'Games Tracked', color: 'purple',
+        id: 'stat-games', icon: Gamepad2, label: 'Owned Games', color: 'purple',
         value: metricStateValue({ phase, value: overview.games.length.toLocaleString() }),
         sub: phase === 'ready'
           ? overview.games.length ? 'From your Steam library' : 'Steam returned no games'
-          : 'Your known Steam library',
+          : 'Steam library availability',
       },
       {
         id: 'stat-unlocked', icon: Trophy, label: 'Achievements Unlocked', color: 'blue',
@@ -122,9 +128,9 @@ export default function Dashboard({ steamStatus, selectedGame, onSteamReconnect 
         sub: hasCurrentGameData ? total ? `${unlocked} of ${total} unlocked` : 'This game has no achievement data' : 'For the selected game',
       },
       {
-        id: 'stat-activity', icon: TrendingUp, label: 'Last Activity', color: 'violet',
-        value: 'Never',
-        sub: 'No recorded activity yet',
+        id: 'stat-activity', icon: TrendingUp, label: 'Activity', color: 'violet',
+        value: 'Not tracked',
+        sub: 'Activity tracking is not enabled',
       },
     ];
   }, [overview, selectedGame]);

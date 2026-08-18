@@ -67,25 +67,34 @@ function AppContent() {
 
   // ── Restore State After Game-Switch Relaunch ────────────────────────────
   useEffect(() => {
-    window.steamAPI?.app.onInitialState((state) => {
-      if (state?.selectedGame) {
+    let active = true;
+    const applyInitialState = (state) => {
+      if (active && state?.selectedGame) {
         setSelectedGame(state.selectedGame);
         navigate('/achievements', { replace: true });
       }
-    });
+    };
+    window.steamAPI?.app.getInitialState().then(applyInitialState).catch(() => {});
+    const unsubscribe = window.steamAPI?.app.onInitialState(applyInitialState);
+    return () => {
+      active = false;
+      unsubscribe?.();
+    };
   }, [navigate]);
 
   // ── Game Selection Handler ───────────────────────────────────────────────
   const handleGameSelect = useCallback(async (game) => {
-    setSelectedGame(game);
     setIsSwitching(true);
     try {
-      await window.steamAPI?.steam.switchGame(game.appId, game.name, game.headerImage);
-      // Context swapped, navigate directly
-      setIsSwitching(false);
+      const result = await window.steamAPI?.steam.switchGame(game.appId, game.name, game.headerImage);
+      if (!result?.success) throw new Error('Steam could not prepare the selected game context.');
+      setSelectedGame(game);
       navigate('/achievements');
     } catch (err) {
       console.error('[App] switchGame failed:', err);
+      // Keep the authoritative previously selected game visible when the main
+      // process rejects a conflicting schedule or runtime-context switch.
+    } finally {
       setIsSwitching(false);
     }
   }, [navigate]);

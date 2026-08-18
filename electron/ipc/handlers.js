@@ -207,6 +207,7 @@ function registerIpcHandlers() {
 
   // ─── App Info ─────────────────────────────────────────────────────────────
   ipcMain.handle('app:get-version', () => app.getVersion());
+  ipcMain.handle('app:get-initial-state', () => ({ selectedGame: settingsStore.get('selectedGame') }));
   ipcMain.handle('app:open-external', async (_e, url) => {
     if (!TRUSTED_EXTERNAL_URLS.has(url)) throw new Error('This external link is not permitted.');
     await shell.openExternal(url);

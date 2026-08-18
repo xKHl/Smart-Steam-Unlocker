@@ -2,6 +2,7 @@
   "name": "smart-steam-unlocker",
   "version": "0.2.1",
   "description": "A smart local Steam Achievement Unlocker desktop application with delay timer logic",
+  "author": "Khalid Alotaibi",
   "main": "electron/main.js",
   "scripts": {
     "dev": "concurrently -k -n \"VITE,ELECTRON\" -c \"cyan.bold,yellow.bold\" \"vite\" \"npm run electron:dev\"",
@@ -52,7 +53,8 @@
       "signingHashAlgorithms": null
     },
     "linux": {
-      "target": "AppImage"
+      "target": "AppImage",
+      "category": "Utility"
     }
   }
 }
