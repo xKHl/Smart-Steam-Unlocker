@@ -117,14 +117,23 @@ function recoverSchedule(persistedSchedule, now = Date.now()) {
   recovered.items = recovered.items.map((item) => {
     if (item.status !== ITEM_STATUS.EXECUTING) return item;
     changed = true;
-    const canRetry = (item.attempts ?? 0) <= (item.maxRetries ?? 2);
+    const interruptedToken = item.executionToken ?? item.interruptedExecutionToken ?? null;
+    const history = Array.isArray(item.executionHistory) ? [...item.executionHistory] : [];
+    if (interruptedToken && !history.some((attempt) => attempt.token === interruptedToken)) {
+      history.push({ token: interruptedToken, recoveredAt: now, state: 'interrupted' });
+    }
     return {
       ...item,
-      status: canRetry ? ITEM_STATUS.RETRY : ITEM_STATUS.FAILED,
+      // An external operation may have completed before the process stopped.
+      // Recovery must verify this immutable attempt before a new execution is allowed.
+      status: ITEM_STATUS.VERIFICATION_REQUIRED,
       verification: VERIFICATION.UNCERTAIN,
-      nextAttemptAt: canRetry ? now : null,
-      lastError: 'Recovered an interrupted execution; prior outcome could not be verified.',
+      recoveryPending: true,
+      interruptedExecutionToken: interruptedToken,
       executionToken: null,
+      executionHistory: history,
+      nextAttemptAt: null,
+      lastError: 'Recovered an interrupted execution; verification is required before any retry.',
     };
   });
 
@@ -159,6 +168,17 @@ function getHeadAction(schedule, now) {
   return null;
 }
 
+function createExecutionContext(schedule, item, executionToken) {
+  return Object.freeze({
+    appId: schedule.appId,
+    achievementId: item.id,
+    scheduleId: schedule.id,
+    itemId: item.id,
+    sequencePosition: item.sequencePosition,
+    executionToken,
+  });
+}
+
 function normalizeExecutionResult(result) {
   const outcome = result?.outcome ?? (result?.success ? 'success' : 'failed');
   return {
@@ -178,7 +198,7 @@ function normalizeVerificationResult(result) {
 
 function createScheduler({ executor, verifier, persist = () => true, now = () => Date.now(), onUpdate = () => {} } = {}) {
   if (!executor || typeof executor.executeUnlock !== 'function') {
-    throw new Error('An executor with executeUnlock(achievementId) is required.');
+    throw new Error('An executor with executeUnlock(executionContext) is required.');
   }
   if (!verifier || typeof verifier.verify !== 'function') {
     throw new Error('A verifier with verify({ schedule, item, executionResult }) is required.');
@@ -345,8 +365,10 @@ function createScheduler({ executor, verifier, persist = () => true, now = () =>
 
     item.status = ITEM_STATUS.VERIFICATION_REQUIRED;
     item.executionToken = null;
+    item.recoveryPending = false;
     item.verification = VERIFICATION.UNVERIFIED;
     item.executionResult = executionResult;
+    item.executionContext = executionResult?.context ?? item.executionContext ?? null;
     item.lastError = null;
     next.updatedAt = now();
     return commit(next, previous, expectedGeneration, { blockOnFailure: true });
@@ -362,7 +384,18 @@ function createScheduler({ executor, verifier, persist = () => true, now = () =>
       verificationResult = normalizeVerificationResult(await verifier.verify({
         schedule: clone(schedule),
         item: clone(head),
-        executionResult: clone(head.executionResult),
+        executionResult: clone(head.executionResult ?? {
+          outcome: 'uncertain',
+          recoveryPending: Boolean(head.recoveryPending),
+          context: head.executionContext ?? {
+            appId: schedule.appId,
+            achievementId: head.id,
+            scheduleId: schedule.id,
+            itemId: head.id,
+            sequencePosition: head.sequencePosition,
+            executionToken: head.interruptedExecutionToken ?? null,
+          },
+        }),
       }));
     } catch (error) {
       verificationResult = { verification: VERIFICATION.UNCERTAIN, error: error instanceof Error ? error.message : String(error) };
@@ -379,7 +412,18 @@ function createScheduler({ executor, verifier, persist = () => true, now = () =>
     if (verificationResult.verification === VERIFICATION.VERIFIED) {
       item.status = ITEM_STATUS.COMPLETED;
       item.completedAt = now();
+      item.recoveryPending = false;
+      item.interruptedExecutionToken = null;
       item.lastError = null;
+    } else if (verificationResult.verification === VERIFICATION.UNVERIFIED && item.recoveryPending) {
+      // Recovery has confirmed the interrupted attempt did not complete. The item
+      // may now be retried, but remains paused until the caller explicitly resumes.
+      item.status = ITEM_STATUS.RETRY;
+      item.recoveryPending = false;
+      item.interruptedExecutionToken = null;
+      item.nextAttemptAt = now();
+      next.state = SCHEDULE_STATE.PAUSED;
+      item.lastError = verificationResult.error || 'Recovered execution was not completed; retry is ready when resumed.';
     } else if (verificationResult.verification === VERIFICATION.UNVERIFIED) {
       item.status = ITEM_STATUS.VERIFICATION_REQUIRED;
       next.state = SCHEDULE_STATE.PAUSED;
@@ -423,9 +467,18 @@ function createScheduler({ executor, verifier, persist = () => true, now = () =>
       const next = clone(schedule);
       const item = next.items.find((candidate) => candidate.id === itemId);
       if (!item) return clone(schedule);
-      const token = `${scheduleId}:${item.id}:${(item.attempts ?? 0) + 1}:${now()}`;
+      const attemptStartedAt = now();
+      const token = `${scheduleId}:${item.id}:${(item.attempts ?? 0) + 1}:${attemptStartedAt}`;
+      const executionContext = createExecutionContext(next, item, token);
       item.status = ITEM_STATUS.EXECUTING;
       item.executionToken = token;
+      item.executionContext = clone(executionContext);
+      item.interruptedExecutionToken = null;
+      item.recoveryPending = false;
+      item.executionHistory = [
+        ...(Array.isArray(item.executionHistory) ? item.executionHistory : []),
+        { token, context: clone(executionContext), startedAt: attemptStartedAt, state: 'executing' },
+      ];
       item.attempts = (item.attempts ?? 0) + 1;
       item.lastError = null;
       next.updatedAt = now();
@@ -435,9 +488,28 @@ function createScheduler({ executor, verifier, persist = () => true, now = () =>
 
       let executionResult;
       try {
-        executionResult = normalizeExecutionResult(await executor.executeUnlock(itemId));
+        if (typeof executor.validateContext === 'function') {
+          const validation = await executor.validateContext(executionContext);
+          if (validation === false || validation?.valid === false) {
+            executionResult = {
+              outcome: 'failed',
+              error: validation?.error || 'Execution context was rejected before execution.',
+              raw: validation ?? null,
+              context: clone(executionContext),
+            };
+          }
+        }
+        if (!executionResult) {
+          executionResult = normalizeExecutionResult(await executor.executeUnlock(executionContext));
+          executionResult.context = clone(executionContext);
+        }
       } catch (error) {
-        executionResult = { outcome: 'uncertain', error: error instanceof Error ? error.message : String(error), raw: null };
+        executionResult = {
+          outcome: 'uncertain',
+          error: error instanceof Error ? error.message : String(error),
+          raw: null,
+          context: clone(executionContext),
+        };
       }
 
       if (!schedule || schedule.id !== scheduleId || generation !== expectedGeneration) return clone(schedule);
@@ -503,6 +575,7 @@ module.exports = {
   SCHEDULE_STATE,
   SchedulerBusyError,
   VERIFICATION,
+  createExecutionContext,
   createSchedule,
   createScheduler,
   recoverSchedule,

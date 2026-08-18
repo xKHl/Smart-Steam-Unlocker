@@ -1,6 +1,7 @@
 const { BrowserWindow } = require('electron');
 const settingsStore = require('./settingsStore');
 const steamManager = require('./steamManager');
+const { operationCoordinator } = require('./operationCoordinator');
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Timer State
@@ -21,6 +22,35 @@ let tickInterval = null;
 // fire another one. Without this guard a slow/stalled unlock can trigger
 // a second (and third…) unlock on subsequent ticks.
 let isUnlocking = false;
+let activeAppId = null;
+let leaseOwnerId = null;
+
+function resolveAppId() {
+  const selectedGame = settingsStore.get('selectedGame');
+  return selectedGame?.appId ?? steamManager.getStatus().currentAppId ?? null;
+}
+
+function ownerFor(appId) {
+  return `instant:${appId}:${Date.now()}`;
+}
+
+function synchronizeQueueLeases(nextQueue = queue, nextAppId = activeAppId, nextOwnerId = leaseOwnerId) {
+  if (!nextQueue.length || !nextAppId || !nextOwnerId) {
+    if (leaseOwnerId) operationCoordinator.releaseOwner(leaseOwnerId);
+    leaseOwnerId = null;
+    return;
+  }
+
+  const leases = nextQueue.map((achievement) => ({
+    appId: nextAppId,
+    achievementId: achievement.id,
+    mode: 'instant',
+    ownerId: nextOwnerId,
+    state: isActive ? 'running' : 'paused',
+  }));
+  operationCoordinator.replaceOwner(leaseOwnerId, leases);
+  leaseOwnerId = nextOwnerId;
+}
 
 // ─────────────────────────────────────────────────────────────────────────────
 
@@ -28,9 +58,12 @@ function init() {
   const savedState = settingsStore.get('timerState');
   if (savedState) {
     const status = steamManager.getStatus();
-    // Only restore if the selected game matches the saved queue
-    if (savedState.appId === status.currentAppId) {
+    const selectedAppId = resolveAppId() ?? status.currentAppId;
+    // Only restore if the selected game matches the saved queue.
+    if (savedState.appId === selectedAppId) {
       queue = savedState.queue || [];
+      activeAppId = savedState.appId;
+      leaseOwnerId = savedState.leaseOwnerId || ownerFor(activeAppId);
       baseMultiplier = savedState.baseMultiplier ?? savedState.baseMins ?? 1;
       varianceMins = savedState.varianceMins || 0;
       fixedMins = savedState.fixedMins || null;
@@ -38,6 +71,7 @@ function init() {
       totalInQueue = savedState.totalInQueue || 0;
       unlockedCount = savedState.unlockedCount || 0;
       isActive = false; // Always start paused on app boot
+      synchronizeQueueLeases();
       // console.log(`[TimerService] Restored queue for AppID ${savedState.appId}.`);
     } else {
       settingsStore.delete('timerState');
@@ -47,7 +81,8 @@ function init() {
 
 function saveState() {
   settingsStore.set('timerState', {
-    appId: steamManager.getStatus().currentAppId,
+    appId: activeAppId ?? resolveAppId(),
+    leaseOwnerId,
     queue,
     baseMultiplier,
     varianceMins,
@@ -133,6 +168,13 @@ async function unlockNext() {
     return;
   }
 
+  // The queued lease is App-ID bound. Never let mutable selected-game state
+  // redirect an existing Instant operation to another application.
+  if (!activeAppId || String(resolveAppId()) !== String(activeAppId)) {
+    stopQueue();
+    return;
+  }
+
   isUnlocking = true;
   const achievement = queue[0];
   // console.log(`[TimerService] Unlocking "${achievement.name || achievement.id}" …`);
@@ -151,6 +193,7 @@ async function unlockNext() {
   if (result.success) {
     queue.shift(); // Remove the successfully unlocked item
     unlockedCount++;
+    synchronizeQueueLeases(); // Completed items deterministically release their lease.
     // console.log(`[TimerService] ✓ Unlocked ${result.achievementId} (${unlockedCount}/${totalInQueue})`);
 
     if (queue.length > 0 && isActive) {
@@ -173,8 +216,11 @@ async function unlockNext() {
       stopQueue();
     }
   } else {
+    // A terminal failure releases this item. Remaining queued items stay paused
+    // and retain their leases so a later resume cannot conflict with Humanized.
+    queue.shift();
+    synchronizeQueueLeases();
     // console.error(`[TimerService] ✗ Failed to unlock ${achievement.id}:`, result.error);
-    // Stop to prevent an infinite failure loop
     stopQueue();
   }
 }
@@ -209,17 +255,27 @@ function startQueue(achievements, multiplier, variance, overrideMins = null) {
   varianceMins = variance ?? 0;
   fixedMins = overrideMins;
 
-  // If new parameters are passed, overwrite the queue
+  // If new parameters are passed, overwrite the queue after atomically
+  // reserving every unresolved AppID + achievement lease for Instant mode.
   if (achievements && achievements.length > 0) {
+    const nextAppId = resolveAppId();
+    if (!nextAppId) throw new Error('No selected App ID is available for the Instant queue.');
+    const nextOwnerId = ownerFor(nextAppId);
+    synchronizeQueueLeases(achievements, nextAppId, nextOwnerId);
     queue = achievements;
+    activeAppId = nextAppId;
+    leaseOwnerId = nextOwnerId;
     totalInQueue = achievements.length;
     unlockedCount = 0;
     currentCountdown = calculateNextDelay();
+  } else if (queue.length > 0) {
+    synchronizeQueueLeases();
   }
 
   if (queue.length === 0) return;
 
   isActive = true;
+  synchronizeQueueLeases();
   saveState();
   
   startTickLoop();
@@ -230,6 +286,7 @@ function stopQueue() {
   isActive = false;
   if (tickInterval) clearInterval(tickInterval);
   tickInterval = null;
+  synchronizeQueueLeases();
   saveState();
   emitUpdate();
 }
@@ -237,6 +294,8 @@ function stopQueue() {
 function clearQueue() {
   stopQueue();
   queue = [];
+  synchronizeQueueLeases();
+  activeAppId = null;
   currentCountdown = 0;
   totalInQueue = 0;
   unlockedCount = 0;

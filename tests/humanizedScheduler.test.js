@@ -16,6 +16,7 @@ const {
 const { createMockExecutionAdapter } = require('../electron/humanized/mockExecutionAdapter');
 const { createMockVerifier } = require('../electron/humanized/mockVerifier');
 const { assertScheduleReplacementAllowed } = require('../electron/humanized/schedulePolicy');
+const { OperationLeaseConflictError, createOperationCoordinator } = require('../electron/operationCoordinator');
 
 const achievements = [
   { id: 'ENDING', name: 'Ending', originalIndex: 2, globalPercent: 4 },
@@ -183,7 +184,8 @@ test('uncertain verification pauses safely and verification failure follows retr
   assert.equal(current.state, SCHEDULE_STATE.FAILED);
 });
 
-test('interrupted execution recovers without consuming an extra retry attempt', () => {
+test('interrupted execution recovers into verifier-first uncertainty without consuming a retry', async () => {
+  let now = 500;
   const persisted = {
     version: 2,
     id: 'interrupted',
@@ -194,14 +196,25 @@ test('interrupted execution recovers without consuming an extra retry attempt', 
       executionToken: 'previous-token', verification: VERIFICATION.UNVERIFIED, scheduledAt: 10,
     }],
   };
+  const executor = createMockExecutionAdapter({ outcomes: { A: ['success'] } });
+  const verifier = createMockVerifier({ outcomes: { A: ['verified'] } });
+  const scheduler = createTestScheduler({ executor, verifier, now: () => now });
 
-  const recovered = recoverSchedule(persisted, 500);
+  await scheduler.load(persisted);
+  let recovered = scheduler.getSchedule();
   assert.equal(recovered.state, SCHEDULE_STATE.PAUSED);
-  assert.equal(recovered.items[0].status, ITEM_STATUS.RETRY);
+  assert.equal(recovered.items[0].status, ITEM_STATUS.VERIFICATION_REQUIRED);
   assert.equal(recovered.items[0].verification, VERIFICATION.UNCERTAIN);
   assert.equal(recovered.items[0].attempts, 1);
-  assert.equal(recovered.items[0].nextAttemptAt, 500);
+  assert.equal(recovered.items[0].interruptedExecutionToken, 'previous-token');
   assert.equal(recovered.items[0].executionToken, null);
+
+  await scheduler.start();
+  await scheduler.processDue();
+  recovered = scheduler.getSchedule();
+  assert.equal(recovered.items[0].status, ITEM_STATUS.COMPLETED);
+  assert.equal(executor.getCalls().length, 0);
+  assert.equal(verifier.getCalls().length, 1);
 });
 
 test('persistence failure blocks execution before the adapter is invoked', async () => {
@@ -310,4 +323,139 @@ test('cross-game service policy rejects replacement by default while same-game a
   assert.equal(assertScheduleReplacementAllowed(current, 480), true);
   assert.equal(assertScheduleReplacementAllowed(current, 481, { replace: true }), true);
   assert.equal(assertScheduleReplacementAllowed(null, 481), true);
+});
+
+
+test('recovery verification confirms non-completion before a controlled retry', async () => {
+  let now = 900;
+  const executor = createMockExecutionAdapter({ outcomes: { A: ['success'] } });
+  const verifier = createMockVerifier({ outcomes: { A: ['unverified', 'verified'] } });
+  const scheduler = createTestScheduler({ executor, verifier, now: () => now });
+  await scheduler.load({
+    version: 2,
+    id: 'interrupted-retry',
+    appId: 480,
+    state: SCHEDULE_STATE.RUNNING,
+    items: [{ id: 'A', status: ITEM_STATUS.EXECUTING, attempts: 1, maxRetries: 2, executionToken: 'old-token', scheduledAt: now }],
+  });
+
+  await scheduler.start();
+  await scheduler.processDue();
+  let current = scheduler.getSchedule();
+  assert.equal(current.state, SCHEDULE_STATE.PAUSED);
+  assert.equal(current.items[0].status, ITEM_STATUS.RETRY);
+  assert.equal(current.items[0].attempts, 1);
+  assert.equal(executor.getCalls().length, 0);
+
+  await scheduler.start();
+  await scheduler.processDue();
+  current = scheduler.getSchedule();
+  assert.equal(current.items[0].status, ITEM_STATUS.COMPLETED);
+  assert.equal(current.items[0].attempts, 2);
+  assert.equal(executor.getCalls().length, 1);
+});
+
+test('recovery uncertainty remains paused and never calls the executor', async () => {
+  let now = 1_000;
+  const executor = createMockExecutionAdapter({ outcomes: { A: ['success'] } });
+  const scheduler = createTestScheduler({
+    executor,
+    verifier: createMockVerifier({ outcomes: { A: ['uncertain'] } }),
+    now: () => now,
+  });
+  await scheduler.load({
+    version: 2,
+    id: 'interrupted-uncertain',
+    appId: 480,
+    state: SCHEDULE_STATE.RUNNING,
+    items: [{ id: 'A', status: ITEM_STATUS.EXECUTING, attempts: 1, maxRetries: 2, executionToken: 'old-token', scheduledAt: now }],
+  });
+
+  await scheduler.start();
+  await scheduler.processDue();
+  const current = scheduler.getSchedule();
+  assert.equal(current.state, SCHEDULE_STATE.PAUSED);
+  assert.equal(current.items[0].status, ITEM_STATUS.VERIFICATION_REQUIRED);
+  assert.equal(current.items[0].verification, VERIFICATION.UNCERTAIN);
+  assert.equal(executor.getCalls().length, 0);
+});
+
+test('executor receives an immutable App-ID-aware execution context', async () => {
+  let now = 1_500;
+  let receivedContext;
+  const executor = {
+    async executeUnlock(context) {
+      receivedContext = context;
+      assert.equal(Object.isFrozen(context), true);
+      assert.equal(Object.getOwnPropertyDescriptor(context, 'appId').writable, false);
+      return { outcome: 'success' };
+    },
+  };
+  const scheduler = createTestScheduler({ executor, now: () => now });
+  await scheduler.setSchedule(makeSchedule(now, [{ id: 'A', originalIndex: 0, globalPercent: 100 }], { appId: 480 }));
+  await scheduler.start();
+  await scheduler.processDue();
+
+  assert.deepEqual(receivedContext, {
+    appId: 480,
+    achievementId: 'A',
+    scheduleId: receivedContext.scheduleId,
+    itemId: 'A',
+    sequencePosition: 1,
+    executionToken: receivedContext.executionToken,
+  });
+  assert.match(receivedContext.executionToken, /^humanized-480-/);
+});
+
+test('executor context mismatch is rejected before execution', async () => {
+  let now = 1_700;
+  let executeCalls = 0;
+  const executor = {
+    async validateContext(context) {
+      return { valid: context.appId === 999, error: 'Active App ID does not match the persisted schedule.' };
+    },
+    async executeUnlock() {
+      executeCalls += 1;
+      return { outcome: 'success' };
+    },
+  };
+  const scheduler = createTestScheduler({ executor, now: () => now });
+  await scheduler.setSchedule(makeSchedule(now, [{ id: 'A', originalIndex: 0, globalPercent: 100 }], { appId: 480 }));
+  await scheduler.start();
+  await scheduler.processDue();
+
+  const current = scheduler.getSchedule();
+  assert.equal(executeCalls, 0);
+  assert.equal(current.items[0].status, ITEM_STATUS.FAILED);
+  assert.match(current.items[0].lastError, /Active App ID/);
+});
+
+test('operation coordinator prevents cross-mode duplicates and releases terminal leases', () => {
+  const coordinator = createOperationCoordinator();
+  const humanized = { appId: 480, achievementId: 'A', mode: 'humanized', ownerId: 'humanized:one', state: 'scheduled' };
+  const instant = { appId: 480, achievementId: 'A', mode: 'instant', ownerId: 'instant:one', state: 'running' };
+
+  coordinator.claim(humanized);
+  assert.throws(() => coordinator.claim(instant), OperationLeaseConflictError);
+  coordinator.releaseOwner(humanized.ownerId);
+  coordinator.claim(instant);
+  assert.throws(() => coordinator.claim(humanized), OperationLeaseConflictError);
+  assert.equal(coordinator.getLease(480, 'A').mode, 'instant');
+
+  coordinator.release(480, 'A', instant.ownerId);
+  assert.equal(coordinator.getLease(480, 'A'), null);
+  coordinator.claim(humanized);
+  coordinator.resetForRestart();
+  assert.deepEqual(coordinator.snapshot(), []);
+});
+
+test('operation coordinator atomically rejects a queue containing a Humanized-owned achievement', () => {
+  const coordinator = createOperationCoordinator();
+  coordinator.claim({ appId: 480, achievementId: 'A', mode: 'humanized', ownerId: 'humanized:one', state: 'paused' });
+  assert.throws(() => coordinator.claimMany([
+    { appId: 480, achievementId: 'B', mode: 'instant', ownerId: 'instant:one', state: 'running' },
+    { appId: 480, achievementId: 'A', mode: 'instant', ownerId: 'instant:one', state: 'running' },
+  ]), OperationLeaseConflictError);
+  assert.equal(coordinator.getLease(480, 'B'), null);
+  assert.equal(coordinator.getLease(480, 'A').mode, 'humanized');
 });

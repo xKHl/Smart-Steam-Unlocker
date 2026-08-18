@@ -24,10 +24,14 @@ function createMockExecutionAdapter({ outcomes = {}, defaultOutcome = 'success' 
   const calls = [];
   const positions = new Map();
 
-  async function executeUnlock(achievementId) {
+  async function executeUnlock(executionContext) {
+    const context = typeof executionContext === 'string'
+      ? { achievementId: executionContext }
+      : executionContext ?? {};
+    const achievementId = context.achievementId;
     const index = positions.get(achievementId) ?? 0;
     positions.set(achievementId, index + 1);
-    calls.push({ achievementId, index });
+    calls.push({ achievementId, index, context: { ...context } });
 
     const configured = Array.isArray(outcomes[achievementId]) ? outcomes[achievementId] : [outcomes[achievementId]];
     const outcome = configured[index] ?? configured[configured.length - 1] ?? defaultOutcome;

@@ -6,6 +6,7 @@
 
 const { BrowserWindow } = require('electron');
 const settingsStore = require('./settingsStore');
+const { operationCoordinator } = require('./operationCoordinator');
 const { createMockExecutionAdapter } = require('./humanized/mockExecutionAdapter');
 const { createMockVerifier } = require('./humanized/mockVerifier');
 const { assertScheduleReplacementAllowed } = require('./humanized/schedulePolicy');
@@ -15,6 +16,35 @@ const STORAGE_KEY = 'humanizedSchedulerState';
 let engine = null;
 let tickTimer = null;
 let serviceFault = null;
+let leasedOwnerId = null;
+
+function isTerminalItem(item) {
+  return item.status === 'completed' || item.status === 'failed';
+}
+
+function ownerFor(schedule) {
+  return schedule ? `humanized:${schedule.id}` : null;
+}
+
+function leasesForSchedule(schedule) {
+  if (!schedule) return [];
+  const ownerId = ownerFor(schedule);
+  return schedule.items
+    .filter((item) => !isTerminalItem(item))
+    .map((item) => ({
+      appId: schedule.appId,
+      achievementId: item.id,
+      mode: 'humanized',
+      ownerId,
+      state: item.status,
+    }));
+}
+
+function synchronizeLeases(schedule) {
+  const nextOwnerId = ownerFor(schedule);
+  operationCoordinator.replaceOwner(leasedOwnerId, leasesForSchedule(schedule));
+  leasedOwnerId = nextOwnerId;
+}
 
 function enrichStatus(status) {
   const runtime = {
@@ -24,7 +54,16 @@ function enrichStatus(status) {
   return { ...status, runtime, adapter: 'mock', verifier: 'mock' };
 }
 
-function emitUpdate(_schedule, _summary, _runtime) {
+function emitUpdate(schedule) {
+  try {
+    synchronizeLeases(schedule);
+  } catch (error) {
+    serviceFault = {
+      code: error?.code || 'OPERATION_COORDINATION_FAILED',
+      message: error instanceof Error ? error.message : String(error),
+    };
+  }
+
   const status = enrichStatus(ensureEngine().getStatus());
   BrowserWindow.getAllWindows().forEach((window) => {
     if (!window.isDestroyed()) window.webContents.send('humanized:update', status);
@@ -70,8 +109,13 @@ function ensureTickLoop() {
 async function init() {
   try {
     const savedSchedule = settingsStore.get(STORAGE_KEY);
-    if (savedSchedule) await ensureEngine().load(savedSchedule);
+    if (savedSchedule) {
+      synchronizeLeases(savedSchedule);
+      await ensureEngine().load(savedSchedule);
+    }
   } catch (error) {
+    if (leasedOwnerId) operationCoordinator.releaseOwner(leasedOwnerId);
+    leasedOwnerId = null;
     serviceFault = {
       code: error?.code || 'PERSISTENCE_FAILED',
       message: error instanceof Error ? error.message : String(error),
@@ -84,6 +128,27 @@ function getStatus() {
   return enrichStatus(ensureEngine().getStatus());
 }
 
+async function applyScheduleChange(nextSchedule, action) {
+  const scheduler = ensureEngine();
+  const previousSchedule = scheduler.getSchedule();
+  const previousOwnerId = leasedOwnerId;
+
+  synchronizeLeases(nextSchedule);
+  try {
+    const result = await action();
+    serviceFault = null;
+    return result;
+  } catch (error) {
+    try {
+      operationCoordinator.replaceOwner(leasedOwnerId, leasesForSchedule(previousSchedule));
+      leasedOwnerId = previousOwnerId;
+    } catch {
+      // Preserve the original scheduler error; runtime status still reports it.
+    }
+    throw error;
+  }
+}
+
 async function create(payload, { replace = false } = {}) {
   const scheduler = ensureEngine();
   const current = scheduler.getSchedule();
@@ -94,8 +159,7 @@ async function create(payload, { replace = false } = {}) {
 
   stopTickLoop();
   const nextSchedule = createSchedule(payload);
-  await scheduler.setSchedule(nextSchedule);
-  serviceFault = null;
+  await applyScheduleChange(nextSchedule, () => scheduler.setSchedule(nextSchedule));
   return getStatus();
 }
 
@@ -121,8 +185,7 @@ async function pause() {
 
 async function clear() {
   stopTickLoop();
-  await ensureEngine().clear();
-  serviceFault = null;
+  await applyScheduleChange(null, () => ensureEngine().clear());
   return getStatus();
 }
 
