@@ -58,6 +58,7 @@ contextBridge.exposeInMainWorld('steamAPI', {
     replace: (payload) => ipcRenderer.invoke('humanized:replace', payload),
     start: () => ipcRenderer.invoke('humanized:start'),
     pause: () => ipcRenderer.invoke('humanized:pause'),
+    recheckNow: () => ipcRenderer.invoke('humanized:recheck-now'),
     clear: () => ipcRenderer.invoke('humanized:clear'),
     onUpdate: (cb) => {
       ipcRenderer.removeAllListeners('humanized:update');

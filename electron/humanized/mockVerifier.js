@@ -9,12 +9,12 @@ function normalizeVerification(outcome) {
     case 'success':
       return { verification: 'verified' };
     case 'unverified':
-      return { verification: 'unverified', error: 'Mock verifier could not confirm the result.' };
+      return { verification: 'unverified', retryable: true, errorCode: 'CONFIRMED_NOT_UNLOCKED', error: 'Mock verifier confirmed that Steam has not yet reported the unlock.' };
     case 'uncertain':
-      return { verification: 'uncertain', error: 'Mock verifier returned an uncertain result.' };
+      return { verification: 'uncertain', errorCode: 'STEAM_READ_UNAVAILABLE', error: 'Mock verifier returned an uncertain result.' };
     case 'failed':
     default:
-      return { verification: 'failed', error: 'Mock verifier reported a verification failure.' };
+      return { verification: 'failed', errorCode: 'VERIFICATION_FAILED', error: 'Mock verifier reported a verification failure.' };
   }
 }
 

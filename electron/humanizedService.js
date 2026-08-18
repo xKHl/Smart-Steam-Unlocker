@@ -113,7 +113,8 @@ async function init() {
     const savedSchedule = settingsStore.get(STORAGE_KEY);
     if (savedSchedule) {
       synchronizeLeases(savedSchedule);
-      await ensureEngine().load(savedSchedule);
+      const loaded = await ensureEngine().load(savedSchedule);
+      if (loaded?.state === 'running') ensureTickLoop();
     }
   } catch (error) {
     if (leasedOwnerId) operationCoordinator.releaseOwner(leasedOwnerId);
@@ -185,6 +186,13 @@ async function pause() {
   return getStatus();
 }
 
+async function recheckNow() {
+  await ensureEngine().recheckNow();
+  serviceFault = null;
+  ensureTickLoop();
+  return getStatus();
+}
+
 async function clear() {
   stopTickLoop();
   await applyScheduleChange(null, () => ensureEngine().clear());
@@ -201,6 +209,7 @@ module.exports = {
   getStatus,
   init,
   pause,
+  recheckNow,
   replace,
   start,
 };

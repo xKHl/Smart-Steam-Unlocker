@@ -178,6 +178,7 @@ function registerIpcHandlers() {
   ipcMain.handle('humanized:replace', (_e, payload) => humanizedService.replace(sanitizeHumanizedPayload(payload)));
   ipcMain.handle('humanized:start', () => humanizedService.start());
   ipcMain.handle('humanized:pause', () => humanizedService.pause());
+  ipcMain.handle('humanized:recheck-now', () => humanizedService.recheckNow());
   ipcMain.handle('humanized:clear', () => humanizedService.clear());
 
   // ─── Credential settings (status only; plaintext never crosses IPC) ───────

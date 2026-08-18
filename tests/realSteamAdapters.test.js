@@ -87,18 +87,18 @@ test('real verifier distinguishes confirmed unlock, confirmed non-completion, an
     steamManager: fakeSteamManager({ getAchievementVerification: async () => ({ success: true, unlocked: false }) }),
   });
   assert.deepEqual(await verifier.verify(request), {
-    verification: 'unverified', retryable: true, error: 'Steam reports that the achievement is not unlocked.',
+    verification: 'unverified', errorCode: 'CONFIRMED_NOT_UNLOCKED', retryable: true, error: 'Steam has not yet reported this achievement as unlocked.',
   });
 
   verifier = createRealSteamVerificationAdapter({
     steamManager: fakeSteamManager({ getAchievementVerification: async () => ({ success: false, errorCode: 'STEAM_READ_UNAVAILABLE', error: 'Offline' }) }),
   });
-  assert.deepEqual(await verifier.verify(request), { verification: 'uncertain', error: 'Offline' });
+  assert.deepEqual(await verifier.verify(request), { verification: 'uncertain', errorCode: 'STEAM_READ_UNAVAILABLE', error: 'Offline' });
 
   verifier = createRealSteamVerificationAdapter({
     steamManager: fakeSteamManager({ getAchievementVerification: async () => ({ success: false, errorCode: 'APP_ID_MISMATCH', error: 'Wrong app' }) }),
   });
-  assert.deepEqual(await verifier.verify(request), { verification: 'failed', error: 'Wrong app' });
+  assert.deepEqual(await verifier.verify(request), { verification: 'failed', errorCode: 'APP_ID_MISMATCH', error: 'Wrong app' });
 });
 
 test('real adapter abstraction preserves verifier-first recovery and prevents a second execution when already unlocked', async () => {
@@ -147,7 +147,7 @@ test('real execution adapter rejects a missing App ID before Steam is called', a
   assert.equal(calls, 0);
 });
 
-test('real verifier confirmed non-completion produces a controlled retry rather than completion', async () => {
+test('real verifier confirmed non-completion remains in persisted visibility verification before retry', async () => {
   const steamManager = fakeSteamManager({
     getAchievementVerification: async () => ({ success: true, unlocked: false }),
   });
@@ -170,14 +170,15 @@ test('real verifier confirmed non-completion produces a controlled retry rather 
   await scheduler.start();
   await scheduler.processDue();
 
-  const current = scheduler.getSchedule();
-  assert.equal(current.state, SCHEDULE_STATE.PAUSED);
-  assert.equal(current.items[0].status, ITEM_STATUS.RETRY);
-  assert.equal(current.items[0].verification, VERIFICATION.UNVERIFIED);
+    const current = scheduler.getSchedule();
+  assert.equal(current.state, SCHEDULE_STATE.RUNNING);
+  assert.equal(current.items[0].status, ITEM_STATUS.VERIFICATION_REQUIRED);
+  assert.equal(current.items[0].verification, VERIFICATION.PENDING);
+  assert.equal(current.items[0].verificationMeta.confirmedNotUnlockedCount, 1);
 });
 
-
 test('post-activation store API failure is verifier-first and completes when Steam confirms the unlock', async () => {
+
   let unlockCalls = 0;
   let verificationCalls = 0;
   let refreshCalls = 0;
@@ -222,7 +223,7 @@ test('post-activation store API failure is verifier-first and completes when Ste
   assert.equal(current.items[0].verification, VERIFICATION.VERIFIED);
 });
 
-test('post-activation store API failure permits controlled retry only after verification confirms non-completion', async () => {
+test('post-activation store API failure continues verification after confirmed non-completion', async () => {
   let unlockCalls = 0;
   const steamManager = fakeSteamManager({
     unlockAchievement: async () => {
@@ -255,12 +256,13 @@ test('post-activation store API failure permits controlled retry only after veri
 
   const current = scheduler.getSchedule();
   assert.equal(unlockCalls, 1);
-  assert.equal(current.state, SCHEDULE_STATE.PAUSED);
-  assert.equal(current.items[0].status, ITEM_STATUS.RETRY);
-  assert.equal(current.items[0].verification, VERIFICATION.UNVERIFIED);
+  assert.equal(current.state, SCHEDULE_STATE.RUNNING);
+  assert.equal(current.items[0].status, ITEM_STATUS.VERIFICATION_REQUIRED);
+  assert.equal(current.items[0].verification, VERIFICATION.PENDING);
+  assert.equal(current.items[0].verificationMeta.confirmedNotUnlockedCount, 1);
 });
 
-test('post-activation store API failure stays paused when real verification is uncertain', async () => {
+test('post-activation store API failure continues automatic verification when real verification is uncertain', async () => {
   let unlockCalls = 0;
   const steamManager = fakeSteamManager({
     unlockAchievement: async () => {
@@ -293,7 +295,8 @@ test('post-activation store API failure stays paused when real verification is u
 
   const current = scheduler.getSchedule();
   assert.equal(unlockCalls, 1);
-  assert.equal(current.state, SCHEDULE_STATE.PAUSED);
+  assert.equal(current.state, SCHEDULE_STATE.RUNNING);
   assert.equal(current.items[0].status, ITEM_STATUS.VERIFICATION_REQUIRED);
   assert.equal(current.items[0].verification, VERIFICATION.UNCERTAIN);
+  assert.equal(current.items[0].verificationMeta.exhausted, false);
 });

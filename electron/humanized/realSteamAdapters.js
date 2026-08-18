@@ -106,12 +106,12 @@ function createRealSteamVerificationAdapter({ steamManager }) {
       try {
         result = await steamManager.getAchievementVerification(appId, achievementId);
       } catch (error) {
-        return { verification: 'uncertain', error: error instanceof Error ? error.message : String(error) };
+        return { verification: 'uncertain', errorCode: 'VERIFICATION_EXCEPTION', error: error instanceof Error ? error.message : String(error) };
       }
       if (!result?.success) {
         const code = result?.errorCode;
-        if (TERMINAL_CODES.has(code)) return { verification: 'failed', error: result?.error || 'Steam verification rejected the operation.' };
-        return { verification: 'uncertain', error: result?.error || 'Steam verification is unavailable.' };
+        if (TERMINAL_CODES.has(code)) return { verification: 'failed', errorCode: code, error: result?.error || 'Steam verification rejected the operation.' };
+        return { verification: 'uncertain', errorCode: code || 'STEAM_READ_UNAVAILABLE', error: result?.error || 'Steam verification is unavailable.' };
       }
       if (result.unlocked) {
         // Reuse the existing optimistic-cache and renderer unlock event only
@@ -119,7 +119,7 @@ function createRealSteamVerificationAdapter({ steamManager }) {
         steamManager.confirmVerifiedAchievement?.(appId, achievementId);
         return { verification: 'verified' };
       }
-      return { verification: 'unverified', retryable: true, error: 'Steam reports that the achievement is not unlocked.' };
+      return { verification: 'unverified', errorCode: 'CONFIRMED_NOT_UNLOCKED', retryable: true, error: 'Steam has not yet reported this achievement as unlocked.' };
     },
   };
 }

@@ -35,12 +35,13 @@ function makeSchedule(now, achievementList = [{ id: 'A', originalIndex: 0, globa
   });
 }
 
-function createTestScheduler({ executor, verifier, persist, now }) {
+function createTestScheduler({ executor, verifier, persist, now, verificationPolicy }) {
   return createScheduler({
     executor: executor ?? createMockExecutionAdapter(),
     verifier: verifier ?? createMockVerifier(),
     persist: persist ?? (() => true),
     now: now ?? (() => 0),
+    verificationPolicy,
   });
 }
 
@@ -135,7 +136,7 @@ test('verified execution success completes only after the verifier confirms it',
   assert.equal(verifier.getCalls().length, 1);
 });
 
-test('unverified verification pauses the schedule in verification-required state without re-executing', async () => {
+test('confirmed non-completion continues persisted verification without re-executing', async () => {
   let now = 3_000;
   const executor = createMockExecutionAdapter({ outcomes: { A: ['success'] } });
   const verifier = createMockVerifier({ outcomes: { A: ['unverified'] } });
@@ -145,14 +146,15 @@ test('unverified verification pauses the schedule in verification-required state
   await scheduler.processDue();
 
   const paused = scheduler.getSchedule();
-  assert.equal(paused.state, SCHEDULE_STATE.PAUSED);
+  assert.equal(paused.state, SCHEDULE_STATE.RUNNING);
   assert.equal(paused.items[0].status, ITEM_STATUS.VERIFICATION_REQUIRED);
-  assert.equal(paused.items[0].verification, VERIFICATION.UNVERIFIED);
+  assert.equal(paused.items[0].verification, VERIFICATION.PENDING);
+  assert.ok(paused.items[0].verificationMeta.nextVerificationAt > now);
   await scheduler.processDue();
   assert.equal(executor.getCalls().length, 1);
 });
 
-test('uncertain verification pauses safely and verification failure follows retry policy', async () => {
+test('uncertain reads continue verification and terminal verifier failures require user attention', async () => {
   let now = 4_000;
   const uncertainScheduler = createTestScheduler({
     executor: createMockExecutionAdapter({ outcomes: { A: ['success'] } }),
@@ -162,8 +164,9 @@ test('uncertain verification pauses safely and verification failure follows retr
   await uncertainScheduler.setSchedule(makeSchedule(now));
   await uncertainScheduler.start();
   await uncertainScheduler.processDue();
-  assert.equal(uncertainScheduler.getSchedule().state, SCHEDULE_STATE.PAUSED);
+  assert.equal(uncertainScheduler.getSchedule().state, SCHEDULE_STATE.RUNNING);
   assert.equal(uncertainScheduler.getSchedule().items[0].verification, VERIFICATION.UNCERTAIN);
+  assert.equal(uncertainScheduler.getSchedule().items[0].verificationMeta.exhausted, false);
 
   const failureScheduler = createTestScheduler({
     executor: createMockExecutionAdapter({ outcomes: { A: ['success', 'success'] } }),
@@ -175,13 +178,11 @@ test('uncertain verification pauses safely and verification failure follows retr
   await failureScheduler.setSchedule(schedule);
   await failureScheduler.start();
   await failureScheduler.processDue();
-  let current = failureScheduler.getSchedule();
-  assert.equal(current.items[0].status, ITEM_STATUS.RETRY);
-  now = current.items[0].nextAttemptAt;
-  await failureScheduler.processDue();
-  current = failureScheduler.getSchedule();
-  assert.equal(current.items[0].status, ITEM_STATUS.FAILED);
-  assert.equal(current.state, SCHEDULE_STATE.FAILED);
+  const current = failureScheduler.getSchedule();
+  assert.equal(current.items[0].status, ITEM_STATUS.VERIFICATION_REQUIRED);
+  assert.equal(current.state, SCHEDULE_STATE.PAUSED);
+  assert.equal(current.items[0].verificationMeta.exhausted, true);
+  assert.equal(current.items[0].attempts, 1);
 });
 
 test('interrupted execution recovers into verifier-first uncertainty without consuming a retry', async () => {
@@ -202,7 +203,7 @@ test('interrupted execution recovers into verifier-first uncertainty without con
 
   await scheduler.load(persisted);
   let recovered = scheduler.getSchedule();
-  assert.equal(recovered.state, SCHEDULE_STATE.PAUSED);
+  assert.equal(recovered.state, SCHEDULE_STATE.RUNNING);
   assert.equal(recovered.items[0].status, ITEM_STATUS.VERIFICATION_REQUIRED);
   assert.equal(recovered.items[0].verification, VERIFICATION.UNCERTAIN);
   assert.equal(recovered.items[0].attempts, 1);
@@ -326,7 +327,7 @@ test('cross-game service policy rejects replacement by default while same-game a
 });
 
 
-test('recovery verification confirms non-completion before a controlled retry', async () => {
+test('recovery confirmation delay continues verification before any controlled retry', async () => {
   let now = 900;
   const executor = createMockExecutionAdapter({ outcomes: { A: ['success'] } });
   const verifier = createMockVerifier({ outcomes: { A: ['unverified', 'verified'] } });
@@ -342,20 +343,20 @@ test('recovery verification confirms non-completion before a controlled retry', 
   await scheduler.start();
   await scheduler.processDue();
   let current = scheduler.getSchedule();
-  assert.equal(current.state, SCHEDULE_STATE.PAUSED);
-  assert.equal(current.items[0].status, ITEM_STATUS.RETRY);
-  assert.equal(current.items[0].attempts, 1);
+  assert.equal(current.state, SCHEDULE_STATE.RUNNING);
+  assert.equal(current.items[0].status, ITEM_STATUS.VERIFICATION_REQUIRED);
+  assert.equal(current.items[0].verificationMeta.confirmedNotUnlockedCount, 1);
   assert.equal(executor.getCalls().length, 0);
 
-  await scheduler.start();
+  now = current.items[0].verificationMeta.nextVerificationAt;
   await scheduler.processDue();
   current = scheduler.getSchedule();
   assert.equal(current.items[0].status, ITEM_STATUS.COMPLETED);
-  assert.equal(current.items[0].attempts, 2);
-  assert.equal(executor.getCalls().length, 1);
+  assert.equal(current.items[0].attempts, 1);
+  assert.equal(executor.getCalls().length, 0);
 });
 
-test('recovery uncertainty remains paused and never calls the executor', async () => {
+test('recovery uncertainty continues verification and never calls the executor', async () => {
   let now = 1_000;
   const executor = createMockExecutionAdapter({ outcomes: { A: ['success'] } });
   const scheduler = createTestScheduler({
@@ -374,9 +375,10 @@ test('recovery uncertainty remains paused and never calls the executor', async (
   await scheduler.start();
   await scheduler.processDue();
   const current = scheduler.getSchedule();
-  assert.equal(current.state, SCHEDULE_STATE.PAUSED);
+  assert.equal(current.state, SCHEDULE_STATE.RUNNING);
   assert.equal(current.items[0].status, ITEM_STATUS.VERIFICATION_REQUIRED);
   assert.equal(current.items[0].verification, VERIFICATION.UNCERTAIN);
+  assert.equal(current.items[0].verificationMeta.exhausted, false);
   assert.equal(executor.getCalls().length, 0);
 });
 
@@ -485,4 +487,123 @@ test('recovery verifier failure remains paused and never authorizes a duplicate 
   assert.equal(current.items[0].verification, VERIFICATION.UNCERTAIN);
   assert.equal(current.items[0].recoveryPending, true);
   assert.equal(executor.getCalls().length, 0);
+});
+
+
+test('post-activation visibility delay automatically rechecks and completes without a duplicate executor call', async () => {
+  let now = 10_000;
+  const executor = createMockExecutionAdapter({ outcomes: { A: ['success'] } });
+  const verifier = createMockVerifier({ outcomes: { A: ['unverified', 'verified'] } });
+  const scheduler = createTestScheduler({
+    executor,
+    verifier,
+    now: () => now,
+    verificationPolicy: { backoffMs: [0, 50], horizonMs: 500 },
+  });
+  await scheduler.setSchedule(makeSchedule(now));
+  await scheduler.start();
+  await scheduler.processDue();
+
+  let current = scheduler.getSchedule();
+  assert.equal(current.state, SCHEDULE_STATE.RUNNING);
+  assert.equal(current.items[0].status, ITEM_STATUS.VERIFICATION_REQUIRED);
+  assert.equal(current.items[0].verificationMeta.confirmedNotUnlockedCount, 1);
+  assert.equal(executor.getCalls().length, 1);
+
+  now = current.items[0].verificationMeta.nextVerificationAt;
+  await scheduler.processDue();
+  current = scheduler.getSchedule();
+  assert.equal(current.items[0].status, ITEM_STATUS.COMPLETED);
+  assert.equal(executor.getCalls().length, 1);
+  assert.equal(verifier.getCalls().length, 2);
+});
+
+test('persisted verification job resumes automatically after restart at its persisted due time', async () => {
+  let now = 20_000;
+  const executor = createMockExecutionAdapter({ outcomes: { A: ['success'] } });
+  const verifier = createMockVerifier({ outcomes: { A: ['verified'] } });
+  const scheduler = createTestScheduler({
+    executor,
+    verifier,
+    now: () => now,
+    verificationPolicy: { backoffMs: [0, 50], horizonMs: 500 },
+  });
+  await scheduler.load({
+    version: 2,
+    id: 'persisted-verification',
+    appId: 480,
+    state: SCHEDULE_STATE.RUNNING,
+    items: [{
+      id: 'A', sequencePosition: 1, status: ITEM_STATUS.VERIFICATION_REQUIRED,
+      attempts: 1, maxRetries: 2, scheduledAt: 0, executionToken: null,
+      verification: VERIFICATION.UNCERTAIN,
+      verificationMeta: {
+        attemptCount: 2, confirmedNotUnlockedCount: 0, firstVerificationAt: 19_000,
+        lastVerificationAt: 19_500, nextVerificationAt: 20_000, horizonAt: 25_000,
+        reasonCode: 'TIMEOUT', exhausted: false, autoContinue: true,
+      },
+      executionContext: { appId: 480, achievementId: 'A', scheduleId: 'persisted-verification', itemId: 'A', sequencePosition: 1, executionToken: 'prior' },
+    }],
+  });
+
+  assert.equal(scheduler.getSchedule().state, SCHEDULE_STATE.RUNNING);
+  await scheduler.processDue();
+  assert.equal(scheduler.getSchedule().items[0].status, ITEM_STATUS.COMPLETED);
+  assert.equal(executor.getCalls().length, 0);
+  assert.equal(verifier.getCalls().length, 1);
+});
+
+test('manual recheck invokes verification only after a bounded verification horizon is exhausted', async () => {
+  let now = 30_000;
+  const executor = createMockExecutionAdapter({ outcomes: { A: ['success'] } });
+  const verifier = createMockVerifier({ outcomes: { A: ['verified'] } });
+  const scheduler = createTestScheduler({ executor, verifier, now: () => now });
+  await scheduler.setSchedule({
+    version: 2,
+    id: 'manual-recheck',
+    appId: 480,
+    state: SCHEDULE_STATE.PAUSED,
+    items: [{
+      id: 'A', sequencePosition: 1, status: ITEM_STATUS.VERIFICATION_REQUIRED,
+      attempts: 1, maxRetries: 2, scheduledAt: 0, executionToken: null,
+      verification: VERIFICATION.UNCERTAIN,
+      verificationMeta: {
+        attemptCount: 8, confirmedNotUnlockedCount: 0, firstVerificationAt: 1,
+        lastVerificationAt: 2, nextVerificationAt: null, horizonAt: 3,
+        reasonCode: 'TIMEOUT', exhausted: true, autoContinue: false,
+      },
+      executionContext: { appId: 480, achievementId: 'A', scheduleId: 'manual-recheck', itemId: 'A', sequencePosition: 1, executionToken: 'prior' },
+    }],
+  });
+
+  await scheduler.recheckNow();
+  assert.equal(scheduler.getSchedule().items[0].status, ITEM_STATUS.COMPLETED);
+  assert.equal(executor.getCalls().length, 0);
+  assert.equal(verifier.getCalls().length, 1);
+});
+
+test('only repeated confirmed non-completion through the verification horizon permits a controlled retry', async () => {
+  let now = 40_000;
+  const executor = createMockExecutionAdapter({ outcomes: { A: ['success'] } });
+  const verifier = createMockVerifier({ outcomes: { A: ['unverified', 'unverified'] } });
+  const scheduler = createTestScheduler({
+    executor,
+    verifier,
+    now: () => now,
+    verificationPolicy: { backoffMs: [0, 25], horizonMs: 20 },
+  });
+  await scheduler.setSchedule(makeSchedule(now));
+  await scheduler.start();
+  await scheduler.processDue();
+  let current = scheduler.getSchedule();
+  assert.equal(current.items[0].status, ITEM_STATUS.VERIFICATION_REQUIRED);
+  assert.equal(executor.getCalls().length, 1);
+
+  now = current.items[0].verificationMeta.nextVerificationAt;
+  await scheduler.processDue();
+  current = scheduler.getSchedule();
+  assert.equal(current.state, SCHEDULE_STATE.PAUSED);
+  assert.equal(current.items[0].status, ITEM_STATUS.RETRY);
+  assert.equal(current.items[0].verificationMeta.confirmedNotUnlockedCount, 2);
+  assert.equal(executor.getCalls().length, 1);
 });

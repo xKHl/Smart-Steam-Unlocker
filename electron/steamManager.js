@@ -15,7 +15,10 @@ const fs   = require('fs');
 const path = require('path');
 const settingsStore = require('./settingsStore');
 const credentialStore = require('./credentialStore');
+const { createSteamApiClient, STEAM_READ_ERROR } = require('./steamApiClient');
 const { BrowserWindow } = require('electron');
+
+const steamApiClient = createSteamApiClient();
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Module State
@@ -500,30 +503,43 @@ async function getAchievementVerification(appId, achievementId) {
     return { success: false, appId, achievementId, error: 'Steam identity or Web API key is unavailable.', errorCode: 'STEAM_READ_UNAVAILABLE' };
   }
 
-  let lastUnavailable = null;
+  let lastResult = null;
   for (const delayMs of VERIFICATION_RETRY_DELAYS_MS) {
     await waitForVerificationDelay(delayMs);
-    const result = await getAchievements(appId, apiKey, status.steamId, { includeOptimisticCache: false });
-    if (!result.success) {
-      lastUnavailable = result;
+    const result = await steamApiClient.getPlayerAchievementState({
+      apiKey,
+      appId,
+      steamId: status.steamId,
+      achievementId,
+    });
+    if (result.success) return { success: true, appId, achievementId, unlocked: result.unlocked };
+
+    // A player response may omit an achievement that is valid in the game
+    // schema (for example while Steam data is propagating). Fetch schema only
+    // in that ambiguous case instead of on every polling attempt.
+    if (result.errorCode === STEAM_READ_ERROR.PLAYER_ACHIEVEMENT_MISSING) {
+      const schema = await steamApiClient.hasSchemaAchievement({ apiKey, appId, achievementId });
+      if (schema.success && !schema.found) {
+        return { success: false, appId, achievementId, error: `Achievement ${achievementId} was not found for App ID ${appId}.`, errorCode: 'ACHIEVEMENT_NOT_FOUND' };
+      }
+      if (schema.success && schema.found) {
+        lastResult = { success: false, errorCode: STEAM_READ_ERROR.PLAYER_STATE_INVALID, endpoint: 'player-achievements' };
+        continue;
+      }
+      lastResult = schema;
       continue;
     }
-
-    const achievement = result.achievements.find((candidate) => candidate.id === achievementId);
-    if (!achievement) {
-      return { success: false, appId, achievementId, error: `Achievement ${achievementId} was not found for App ID ${appId}.`, errorCode: 'ACHIEVEMENT_NOT_FOUND' };
-    }
-    if (achievement.unlocked) return { success: true, appId, achievementId, unlocked: true };
-    lastUnavailable = { success: true, unlocked: false };
+    lastResult = result;
   }
 
-  if (lastUnavailable?.success) return { success: true, appId, achievementId, unlocked: false };
+  if (lastResult?.success) return { success: true, appId, achievementId, unlocked: false };
   return {
     success: false,
     appId,
     achievementId,
-    error: lastUnavailable?.error || 'Steam achievement read failed.',
-    errorCode: 'STEAM_READ_UNAVAILABLE',
+    error: 'Steam achievement verification could not determine the current player state.',
+    errorCode: lastResult?.errorCode || STEAM_READ_ERROR.STEAM_SERVICE_UNAVAILABLE,
+    endpoint: lastResult?.endpoint || null,
   };
 }
 

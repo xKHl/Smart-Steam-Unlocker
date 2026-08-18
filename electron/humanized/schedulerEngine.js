@@ -28,6 +28,14 @@ const VERIFICATION = Object.freeze({
   UNVERIFIED: 'unverified',
   VERIFIED: 'verified',
   UNCERTAIN: 'uncertain',
+  PENDING: 'pending',
+});
+
+const DEFAULT_VERIFICATION_POLICY = Object.freeze({
+  // The first remote read happens immediately. Subsequent checks are bounded,
+  // deterministic, persisted, and intentionally non-aggressive.
+  backoffMs: Object.freeze([0, 5_000, 15_000, 30_000, 60_000, 120_000, 240_000, 300_000]),
+  horizonMs: 15 * 60 * 1000,
 });
 
 class SchedulerBusyError extends Error {
@@ -85,6 +93,38 @@ function retryDelayMs(attempts) {
   return Math.min(5 * 60 * 1000, 30 * 1000 * Math.pow(2, Math.max(0, attempts - 1)));
 }
 
+function normalizeVerificationPolicy(policy = {}) {
+  const requestedBackoff = Array.isArray(policy.backoffMs) ? policy.backoffMs : DEFAULT_VERIFICATION_POLICY.backoffMs;
+  const backoffMs = requestedBackoff
+    .filter((delay) => Number.isFinite(delay) && delay >= 0)
+    .map((delay) => Math.floor(delay));
+  if (!backoffMs.length) throw new Error('Verification policy requires at least one non-negative backoff delay.');
+  const horizonMs = Number.isFinite(policy.horizonMs) && policy.horizonMs > 0
+    ? Math.floor(policy.horizonMs)
+    : DEFAULT_VERIFICATION_POLICY.horizonMs;
+  return Object.freeze({ backoffMs: Object.freeze(backoffMs), horizonMs });
+}
+
+function verificationDelayMs(attemptCount, policy) {
+  const index = Math.min(Math.max(0, attemptCount), policy.backoffMs.length - 1);
+  return policy.backoffMs[index];
+}
+
+function createVerificationMetadata(now, policy, previous = null) {
+  const firstVerificationAt = Number.isFinite(previous?.firstVerificationAt) ? previous.firstVerificationAt : now;
+  return {
+    attemptCount: Number.isInteger(previous?.attemptCount) && previous.attemptCount >= 0 ? previous.attemptCount : 0,
+    confirmedNotUnlockedCount: Number.isInteger(previous?.confirmedNotUnlockedCount) && previous.confirmedNotUnlockedCount >= 0 ? previous.confirmedNotUnlockedCount : 0,
+    firstVerificationAt,
+    lastVerificationAt: Number.isFinite(previous?.lastVerificationAt) ? previous.lastVerificationAt : null,
+    nextVerificationAt: Number.isFinite(previous?.nextVerificationAt) ? previous.nextVerificationAt : now,
+    horizonAt: Number.isFinite(previous?.horizonAt) ? previous.horizonAt : firstVerificationAt + policy.horizonMs,
+    reasonCode: previous?.reasonCode ?? null,
+    exhausted: Boolean(previous?.exhausted),
+    autoContinue: previous?.autoContinue !== false,
+  };
+}
+
 function isTerminalItem(item) {
   return [ITEM_STATUS.COMPLETED, ITEM_STATUS.FAILED].includes(item.status);
 }
@@ -109,35 +149,50 @@ function summarize(schedule) {
   };
 }
 
-function recoverSchedule(persistedSchedule, now = Date.now()) {
+function recoverSchedule(persistedSchedule, now = Date.now(), verificationPolicy = DEFAULT_VERIFICATION_POLICY) {
   if (!persistedSchedule || !Array.isArray(persistedSchedule.items)) return null;
   const recovered = clone(persistedSchedule);
   let changed = false;
+  const normalizedPolicy = normalizeVerificationPolicy(verificationPolicy);
 
   recovered.items = recovered.items.map((item) => {
-    if (item.status !== ITEM_STATUS.EXECUTING) return item;
-    changed = true;
-    const interruptedToken = item.executionToken ?? item.interruptedExecutionToken ?? null;
-    const history = Array.isArray(item.executionHistory) ? [...item.executionHistory] : [];
-    if (interruptedToken && !history.some((attempt) => attempt.token === interruptedToken)) {
-      history.push({ token: interruptedToken, recoveredAt: now, state: 'interrupted' });
+    if (item.status === ITEM_STATUS.EXECUTING) {
+      changed = true;
+      const interruptedToken = item.executionToken ?? item.interruptedExecutionToken ?? null;
+      const history = Array.isArray(item.executionHistory) ? [...item.executionHistory] : [];
+      if (interruptedToken && !history.some((attempt) => attempt.token === interruptedToken)) {
+        history.push({ token: interruptedToken, recoveredAt: now, state: 'interrupted' });
+      }
+      return {
+        ...item,
+        // An external operation may have completed before the process stopped.
+        // Recovery must verify this immutable attempt before a new execution is allowed.
+        status: ITEM_STATUS.VERIFICATION_REQUIRED,
+        verification: VERIFICATION.UNCERTAIN,
+        verificationMeta: createVerificationMetadata(now, normalizedPolicy, { autoContinue: true, reasonCode: 'INTERRUPTED_EXECUTION' }),
+        recoveryPending: true,
+        interruptedExecutionToken: interruptedToken,
+        executionToken: null,
+        executionHistory: history,
+        nextAttemptAt: null,
+        lastError: 'Recovered an interrupted execution; verification will continue before any retry.',
+      };
     }
-    return {
-      ...item,
-      // An external operation may have completed before the process stopped.
-      // Recovery must verify this immutable attempt before a new execution is allowed.
-      status: ITEM_STATUS.VERIFICATION_REQUIRED,
-      verification: VERIFICATION.UNCERTAIN,
-      recoveryPending: true,
-      interruptedExecutionToken: interruptedToken,
-      executionToken: null,
-      executionHistory: history,
-      nextAttemptAt: null,
-      lastError: 'Recovered an interrupted execution; verification is required before any retry.',
-    };
+
+    if (item.status === ITEM_STATUS.VERIFICATION_REQUIRED) {
+      const metadata = createVerificationMetadata(now, normalizedPolicy, item.verificationMeta ?? { autoContinue: true });
+      if (!item.verificationMeta || JSON.stringify(metadata) !== JSON.stringify(item.verificationMeta)) changed = true;
+      return { ...item, verificationMeta: metadata };
+    }
+    return item;
   });
 
-  if (recovered.state === SCHEDULE_STATE.RUNNING) {
+  const pendingVerification = recovered.items.find((item) => item.status === ITEM_STATUS.VERIFICATION_REQUIRED && item.verificationMeta?.autoContinue && !item.verificationMeta?.exhausted);
+  if (pendingVerification) {
+    recovered.state = SCHEDULE_STATE.RUNNING;
+    recovered.resumedAt = now;
+    changed = true;
+  } else if (recovered.state === SCHEDULE_STATE.RUNNING) {
     recovered.state = SCHEDULE_STATE.PAUSED;
     recovered.resumedAt = null;
     changed = true;
@@ -161,7 +216,12 @@ function getHeadAction(schedule, now) {
   const item = getHeadNonTerminalItem(schedule);
   if (!item) return null;
 
-  if (item.status === ITEM_STATUS.VERIFICATION_REQUIRED) return { type: 'verify', item };
+  if (item.status === ITEM_STATUS.VERIFICATION_REQUIRED) {
+    const metadata = item.verificationMeta;
+    if (metadata?.exhausted) return null;
+    if (!Number.isFinite(metadata?.nextVerificationAt) || metadata.nextVerificationAt <= now) return { type: 'verify', item };
+    return null;
+  }
   if (item.status === ITEM_STATUS.EXECUTING || item.status === ITEM_STATUS.PENDING) return null;
   if (item.status === ITEM_STATUS.SCHEDULED && item.scheduledAt <= now) return { type: 'execute', item };
   if (item.status === ITEM_STATUS.RETRY && (item.nextAttemptAt ?? item.scheduledAt) <= now) return { type: 'execute', item };
@@ -193,11 +253,12 @@ function normalizeVerificationResult(result) {
   return {
     verification,
     retryable: Boolean(result?.retryable),
+    errorCode: result?.errorCode ?? null,
     error: result?.error ?? null,
   };
 }
 
-function createScheduler({ executor, verifier, persist = () => true, now = () => Date.now(), onUpdate = () => {} } = {}) {
+function createScheduler({ executor, verifier, persist = () => true, now = () => Date.now(), onUpdate = () => {}, verificationPolicy = {} } = {}) {
   if (!executor || typeof executor.executeUnlock !== 'function') {
     throw new Error('An executor with executeUnlock(executionContext) is required.');
   }
@@ -205,6 +266,7 @@ function createScheduler({ executor, verifier, persist = () => true, now = () =>
     throw new Error('A verifier with verify({ schedule, item, executionResult }) is required.');
   }
 
+  const normalizedVerificationPolicy = normalizeVerificationPolicy(verificationPolicy);
   let schedule = null;
   let processing = false;
   let generation = 0;
@@ -271,7 +333,7 @@ function createScheduler({ executor, verifier, persist = () => true, now = () =>
   }
 
   async function load(persistedSchedule) {
-    const recovered = recoverSchedule(persistedSchedule, now());
+    const recovered = recoverSchedule(persistedSchedule, now(), normalizedVerificationPolicy);
     if (!recovered) {
       schedule = null;
       return null;
@@ -318,9 +380,12 @@ function createScheduler({ executor, verifier, persist = () => true, now = () =>
     if (executingItem) {
       executingItem.status = ITEM_STATUS.VERIFICATION_REQUIRED;
       executingItem.verification = VERIFICATION.UNCERTAIN;
+      executingItem.verificationMeta = createVerificationMetadata(now(), normalizedVerificationPolicy, { autoContinue: false, reasonCode: 'PAUSED_DURING_EXECUTION' });
       executingItem.executionToken = null;
       executingItem.lastError = 'Paused while execution was in flight; verification is required before resuming.';
     }
+    const verificationItem = next.items.find((item) => item.status === ITEM_STATUS.VERIFICATION_REQUIRED);
+    if (verificationItem?.verificationMeta) verificationItem.verificationMeta.autoContinue = false;
     next.state = SCHEDULE_STATE.PAUSED;
     next.updatedAt = now();
     const result = await commit(next, previous, expectedGeneration, { blockOnFailure: true });
@@ -367,7 +432,11 @@ function createScheduler({ executor, verifier, persist = () => true, now = () =>
     item.status = ITEM_STATUS.VERIFICATION_REQUIRED;
     item.executionToken = null;
     item.recoveryPending = false;
-    item.verification = VERIFICATION.UNVERIFIED;
+    item.verification = VERIFICATION.PENDING;
+    item.verificationMeta = createVerificationMetadata(now(), normalizedVerificationPolicy, {
+      autoContinue: true,
+      reasonCode: executionResult?.outcome === 'uncertain' ? 'POST_ACTIVATION_UNCERTAIN' : 'POST_ACTIVATION_CONFIRMATION',
+    });
     item.executionResult = executionResult;
     item.executionContext = executionResult?.context ?? item.executionContext ?? null;
     item.lastError = null;
@@ -408,54 +477,113 @@ function createScheduler({ executor, verifier, persist = () => true, now = () =>
     const item = next.items.find((candidate) => candidate.id === itemId);
     if (!item || item.status !== ITEM_STATUS.VERIFICATION_REQUIRED) return clone(schedule);
 
+    const verifiedAt = now();
+    const metadata = createVerificationMetadata(verifiedAt, normalizedVerificationPolicy, item.verificationMeta);
+    metadata.attemptCount += 1;
+    metadata.lastVerificationAt = verifiedAt;
+    metadata.reasonCode = verificationResult.errorCode || verificationResult.verification;
     item.verification = verificationResult.verification;
     item.lastError = verificationResult.error;
+
     if (verificationResult.verification === VERIFICATION.VERIFIED) {
       item.status = ITEM_STATUS.COMPLETED;
-      item.completedAt = now();
+      item.completedAt = verifiedAt;
       item.recoveryPending = false;
       item.interruptedExecutionToken = null;
+      item.verificationMeta = { ...metadata, nextVerificationAt: null, exhausted: false, autoContinue: false, reasonCode: 'CONFIRMED_UNLOCKED' };
       item.lastError = null;
-    } else if (verificationResult.verification === VERIFICATION.UNVERIFIED && (item.recoveryPending || verificationResult.retryable)) {
-      // Verified non-completion permits a controlled retry, but it remains paused
-      // until the caller explicitly resumes. Recovery never skips this barrier.
-      item.status = ITEM_STATUS.RETRY;
-      item.recoveryPending = false;
-      item.interruptedExecutionToken = null;
-      item.nextAttemptAt = now();
-      next.state = SCHEDULE_STATE.PAUSED;
-      item.lastError = verificationResult.error || 'Recovered execution was not completed; retry is ready when resumed.';
-    } else if (verificationResult.verification === VERIFICATION.UNVERIFIED) {
-      item.status = ITEM_STATUS.VERIFICATION_REQUIRED;
-      next.state = SCHEDULE_STATE.PAUSED;
-      item.lastError = verificationResult.error || 'Verification is required before scheduling can continue.';
+    } else if (verificationResult.verification === VERIFICATION.UNVERIFIED && verificationResult.retryable) {
+      // A single remote false result after activation is not permission to call
+      // Steam again. Require repeated confirmed non-completion through the
+      // visibility horizon before exposing a controlled retry.
+      metadata.confirmedNotUnlockedCount += 1;
+      if (verifiedAt >= metadata.horizonAt && metadata.confirmedNotUnlockedCount >= 2) {
+        item.status = ITEM_STATUS.RETRY;
+        item.executionToken = null;
+        item.recoveryPending = false;
+        item.interruptedExecutionToken = null;
+        item.nextAttemptAt = verifiedAt;
+        item.verification = VERIFICATION.UNVERIFIED;
+        item.verificationMeta = { ...metadata, nextVerificationAt: null, exhausted: true, autoContinue: false, reasonCode: 'CONFIRMED_NOT_UNLOCKED_HORIZON' };
+        next.state = SCHEDULE_STATE.PAUSED;
+        item.lastError = 'Steam repeatedly reported this achievement as locked after the verification window. A controlled retry is ready when resumed.';
+      } else {
+        item.status = ITEM_STATUS.VERIFICATION_REQUIRED;
+        item.verification = VERIFICATION.PENDING;
+        item.verificationMeta = {
+          ...metadata,
+          nextVerificationAt: verifiedAt + verificationDelayMs(metadata.attemptCount, normalizedVerificationPolicy),
+          exhausted: false,
+          autoContinue: true,
+          reasonCode: 'CONFIRMED_NOT_UNLOCKED_WAITING',
+        };
+        next.state = SCHEDULE_STATE.RUNNING;
+        item.lastError = 'Steam has not yet reported the unlock. Verification will continue before any retry.';
+      }
     } else if (verificationResult.verification === VERIFICATION.UNCERTAIN) {
-      item.status = ITEM_STATUS.VERIFICATION_REQUIRED;
-      next.state = SCHEDULE_STATE.PAUSED;
-      item.lastError = verificationResult.error || 'Verification outcome is uncertain; scheduling has been paused.';
-    } else if (item.recoveryPending) {
-      // A verifier error after an interrupted external operation is ambiguous.
-      // Preserve the verifier-first barrier instead of permitting another execution.
+      if (verifiedAt >= metadata.horizonAt) {
+        item.status = ITEM_STATUS.VERIFICATION_REQUIRED;
+        item.verification = VERIFICATION.UNCERTAIN;
+        item.verificationMeta = { ...metadata, nextVerificationAt: null, exhausted: true, autoContinue: false, reasonCode: verificationResult.errorCode || 'VERIFICATION_HORIZON_EXHAUSTED' };
+        next.state = SCHEDULE_STATE.PAUSED;
+        item.lastError = verificationResult.error || 'Steam verification remained unavailable for the bounded verification window. Recheck when Steam access is restored.';
+      } else {
+        item.status = ITEM_STATUS.VERIFICATION_REQUIRED;
+        item.verification = VERIFICATION.UNCERTAIN;
+        item.verificationMeta = {
+          ...metadata,
+          nextVerificationAt: verifiedAt + verificationDelayMs(metadata.attemptCount, normalizedVerificationPolicy),
+          exhausted: false,
+          autoContinue: true,
+          reasonCode: verificationResult.errorCode || 'VERIFICATION_UNCERTAIN',
+        };
+        next.state = SCHEDULE_STATE.RUNNING;
+        item.lastError = verificationResult.error || 'Steam verification is temporarily unavailable. The app will recheck safely.';
+      }
+    } else {
+      // Context/authentication/schema failures are not authorization to retry an
+      // external operation. Preserve the barrier and require an explicit recheck
+      // after the user repairs the underlying configuration.
       item.status = ITEM_STATUS.VERIFICATION_REQUIRED;
       item.verification = VERIFICATION.UNCERTAIN;
+      item.verificationMeta = { ...metadata, nextVerificationAt: null, exhausted: true, autoContinue: false, reasonCode: verificationResult.errorCode || 'VERIFICATION_FAILED' };
       next.state = SCHEDULE_STATE.PAUSED;
-      item.lastError = verificationResult.error || 'Recovered execution could not be verified; scheduling remains paused.';
-    } else {
-      item.executionToken = null;
-      if (item.attempts <= item.maxRetries) {
-        item.status = ITEM_STATUS.RETRY;
-        item.nextAttemptAt = now() + retryDelayMs(item.attempts);
-      } else {
-        item.status = ITEM_STATUS.FAILED;
-        item.nextAttemptAt = null;
-      }
-      item.lastError = verificationResult.error || 'Verification failed.';
+      item.lastError = verificationResult.error || 'Steam verification needs user attention before this schedule can continue.';
     }
 
     next.updatedAt = now();
     finalizeSchedule(next);
     const result = await commit(next, previous, expectedGeneration, { blockOnFailure: true });
     return result.snapshot;
+  }
+
+  async function recheckNow() {
+    if (!schedule) throw new Error('No schedule has been created.');
+    if (processing) throw new SchedulerBusyError('Cannot recheck while a scheduler operation is in flight.');
+    const head = getHeadNonTerminalItem(schedule);
+    if (!head || head.status !== ITEM_STATUS.VERIFICATION_REQUIRED) {
+      throw new Error('No achievement is awaiting verification.');
+    }
+
+    const previous = schedule;
+    const next = clone(schedule);
+    const item = next.items.find((candidate) => candidate.id === head.id);
+    const metadata = createVerificationMetadata(now(), normalizedVerificationPolicy, item.verificationMeta);
+    item.verification = VERIFICATION.PENDING;
+    item.verificationMeta = {
+      ...metadata,
+      nextVerificationAt: now(),
+      exhausted: false,
+      autoContinue: true,
+      reasonCode: 'MANUAL_RECHECK',
+    };
+    item.lastError = null;
+    next.state = SCHEDULE_STATE.RUNNING;
+    next.resumedAt = now();
+    next.updatedAt = now();
+    const committed = await commit(next, previous, generation, { blockOnFailure: true });
+    if (!committed.applied) return committed.snapshot;
+    return processDue();
   }
 
   async function processDue() {
@@ -576,6 +704,7 @@ function createScheduler({ executor, verifier, persist = () => true, now = () =>
     load,
     pause,
     processDue,
+    recheckNow,
     setSchedule,
     start,
   };
@@ -593,4 +722,6 @@ module.exports = {
   recoverSchedule,
   retryDelayMs,
   summarize,
+  DEFAULT_VERIFICATION_POLICY,
+  normalizeVerificationPolicy,
 };
