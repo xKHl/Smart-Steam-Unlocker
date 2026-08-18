@@ -332,6 +332,25 @@ async function getAchievements(appId, apiKey, steamId, { includeOptimisticCache 
  *   - initialized is ALWAYS set to false in the finally block.
  *   - A single unlock never leaves Steamworks running.
  */
+function publishAchievementUnlocked(appId, achievementId) {
+  const cacheKey = `unlocked_cache_${appId}`;
+  const cache = settingsStore.get(cacheKey) || [];
+  if (!cache.includes(achievementId)) {
+    cache.push(achievementId);
+    settingsStore.set(cacheKey, cache);
+  }
+
+  BrowserWindow.getAllWindows().forEach((win) => {
+    if (!win.isDestroyed()) win.webContents.send('steam:achievement-unlocked', achievementId);
+  });
+}
+
+function confirmVerifiedAchievement(appId, achievementId) {
+  if (!appId || !achievementId) return false;
+  publishAchievementUnlocked(appId, achievementId);
+  return true;
+}
+
 async function unlockAchievement(achievementId, expectedAppId = null) {
   // Instant mode leaves expectedAppId unset. Humanized mode supplies its immutable
   // schedule App ID and must never be redirected by mutable selected-game state.
@@ -379,24 +398,18 @@ async function unlockAchievement(achievementId, expectedAppId = null) {
     const activated = localClient.achievement.activate(achievementId);
     if (activated) {
       activationMayHaveApplied = true;
-      localClient.achievement.store();
+      // steamworks.js exposes achievement.activate() separately from the
+      // supported stats.store() commit API. achievement.store() does not exist
+      // in the installed client surface and must never be called here.
+      const stored = localClient.stats.store();
+      if (!stored) throw new Error('Steam stats store was rejected after achievement activation.');
       // console.log(`[SteamManager] ✓ Unlocked: ${achievementId}`);
       success = true;
 
-      // Update local optimistic cache
-      const cacheKey = `unlocked_cache_${targetAppId}`;
-      const cache = settingsStore.get(cacheKey) || [];
-      if (!cache.includes(achievementId)) {
-        cache.push(achievementId);
-        settingsStore.set(cacheKey, cache);
-      }
-
-      // Broadcast real-time unlock event to all windows
-      BrowserWindow.getAllWindows().forEach(win => {
-        if (!win.isDestroyed()) {
-          win.webContents.send('steam:achievement-unlocked', achievementId);
-        }
-      });
+      // Preserve Instant mode's immediate refresh after the valid local store.
+      // Humanized mode supplies expectedAppId and deliberately waits for the
+      // independent verifier before publishing a renderer/cache unlock update.
+      if (!expectedAppId) publishAchievementUnlocked(targetAppId, achievementId);
     } else {
       errorMsg = 'Activation returned false';
       errorCode = 'ACTIVATION_REJECTED';
@@ -444,6 +457,12 @@ async function unlockAchievement(achievementId, expectedAppId = null) {
  * intentionally bypasses the optimistic local cache so execution success is not
  * treated as proof until the Steam Web API reports the unlocked state.
  */
+const VERIFICATION_RETRY_DELAYS_MS = Object.freeze([0, 750, 1750]);
+
+function waitForVerificationDelay(delayMs) {
+  return delayMs > 0 ? new Promise((resolve) => setTimeout(resolve, delayMs)) : Promise.resolve();
+}
+
 async function getAchievementVerification(appId, achievementId) {
   const selectedGame = settingsStore.get('selectedGame');
   if (!appId || !achievementId) {
@@ -469,15 +488,31 @@ async function getAchievementVerification(appId, achievementId) {
     return { success: false, appId, achievementId, error: 'Steam identity or Web API key is unavailable.', errorCode: 'STEAM_READ_UNAVAILABLE' };
   }
 
-  const result = await getAchievements(appId, apiKey, status.steamId, { includeOptimisticCache: false });
-  if (!result.success) {
-    return { success: false, appId, achievementId, error: result.error || 'Steam achievement read failed.', errorCode: 'STEAM_READ_UNAVAILABLE' };
+  let lastUnavailable = null;
+  for (const delayMs of VERIFICATION_RETRY_DELAYS_MS) {
+    await waitForVerificationDelay(delayMs);
+    const result = await getAchievements(appId, apiKey, status.steamId, { includeOptimisticCache: false });
+    if (!result.success) {
+      lastUnavailable = result;
+      continue;
+    }
+
+    const achievement = result.achievements.find((candidate) => candidate.id === achievementId);
+    if (!achievement) {
+      return { success: false, appId, achievementId, error: `Achievement ${achievementId} was not found for App ID ${appId}.`, errorCode: 'ACHIEVEMENT_NOT_FOUND' };
+    }
+    if (achievement.unlocked) return { success: true, appId, achievementId, unlocked: true };
+    lastUnavailable = { success: true, unlocked: false };
   }
-  const achievement = result.achievements.find((candidate) => candidate.id === achievementId);
-  if (!achievement) {
-    return { success: false, appId, achievementId, error: `Achievement ${achievementId} was not found for App ID ${appId}.`, errorCode: 'ACHIEVEMENT_NOT_FOUND' };
-  }
-  return { success: true, appId, achievementId, unlocked: Boolean(achievement.unlocked) };
+
+  if (lastUnavailable?.success) return { success: true, appId, achievementId, unlocked: false };
+  return {
+    success: false,
+    appId,
+    achievementId,
+    error: lastUnavailable?.error || 'Steam achievement read failed.',
+    errorCode: 'STEAM_READ_UNAVAILABLE',
+  };
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -512,6 +547,7 @@ module.exports = {
   switchGame,
   getAchievements,
   getAchievementVerification,
+  confirmVerifiedAchievement,
   getGlobalAchievementPercentages,
   unlockAchievement,
 };

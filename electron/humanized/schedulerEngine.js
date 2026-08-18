@@ -524,14 +524,18 @@ function createScheduler({ executor, verifier, persist = () => true, now = () =>
       const currentItem = schedule.items.find((candidate) => candidate.id === itemId);
       if (!currentItem || currentItem.executionToken !== token) return clone(schedule);
 
-      if (executionResult.outcome === 'success') {
+      // A successful activation and an uncertain post-activation result both
+      // require an independent state read before another executor call. In
+      // particular, a failed local follow-up may occur after Steam accepted the
+      // activation, so treating it as a normal retry could duplicate a real unlock.
+      if (executionResult.outcome === 'success' || executionResult.outcome === 'uncertain') {
         await transitionToVerificationRequired(scheduleId, expectedGeneration, itemId, executionResult);
         if (schedule?.state === SCHEDULE_STATE.RUNNING) return await verifyHead(scheduleId, expectedGeneration, itemId);
         return clone(schedule);
       }
 
-      if (executionResult.outcome === 'retry' || executionResult.outcome === 'uncertain') {
-        const result = await transitionToRetry(scheduleId, expectedGeneration, itemId, executionResult.error, executionResult.outcome === 'uncertain' ? VERIFICATION.UNCERTAIN : VERIFICATION.UNVERIFIED);
+      if (executionResult.outcome === 'retry') {
+        const result = await transitionToRetry(scheduleId, expectedGeneration, itemId, executionResult.error, VERIFICATION.UNVERIFIED);
         return result?.snapshot ?? clone(schedule);
       }
 

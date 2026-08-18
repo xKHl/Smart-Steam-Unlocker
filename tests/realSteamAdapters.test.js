@@ -175,3 +175,125 @@ test('real verifier confirmed non-completion produces a controlled retry rather 
   assert.equal(current.items[0].status, ITEM_STATUS.RETRY);
   assert.equal(current.items[0].verification, VERIFICATION.UNVERIFIED);
 });
+
+
+test('post-activation store API failure is verifier-first and completes when Steam confirms the unlock', async () => {
+  let unlockCalls = 0;
+  let verificationCalls = 0;
+  let refreshCalls = 0;
+  const steamManager = fakeSteamManager({
+    unlockAchievement: async () => {
+      unlockCalls += 1;
+      return {
+        success: false,
+        errorCode: 'OPERATION_UNCERTAIN',
+        operationMayHaveApplied: true,
+        error: 'localClient.achievement.store is not a function',
+      };
+    },
+    getAchievementVerification: async () => {
+      verificationCalls += 1;
+      return { success: true, unlocked: true };
+    },
+    confirmVerifiedAchievement: () => { refreshCalls += 1; },
+  });
+  const scheduler = createScheduler({
+    executor: createRealSteamExecutionAdapter({ steamManager }),
+    verifier: createRealSteamVerificationAdapter({ steamManager }),
+    now: () => 3_000,
+    persist: () => true,
+  });
+
+  await scheduler.setSchedule({
+    version: 2,
+    id: 'schedule-480',
+    appId: 480,
+    state: SCHEDULE_STATE.PAUSED,
+    items: [{ id: 'ACH_WIN', sequencePosition: 1, status: ITEM_STATUS.SCHEDULED, attempts: 0, maxRetries: 2, scheduledAt: 0, executionToken: null }],
+  });
+  await scheduler.start();
+  await scheduler.processDue();
+
+  const current = scheduler.getSchedule();
+  assert.equal(unlockCalls, 1);
+  assert.equal(verificationCalls, 1);
+  assert.equal(refreshCalls, 1);
+  assert.equal(current.items[0].status, ITEM_STATUS.COMPLETED);
+  assert.equal(current.items[0].verification, VERIFICATION.VERIFIED);
+});
+
+test('post-activation store API failure permits controlled retry only after verification confirms non-completion', async () => {
+  let unlockCalls = 0;
+  const steamManager = fakeSteamManager({
+    unlockAchievement: async () => {
+      unlockCalls += 1;
+      return {
+        success: false,
+        errorCode: 'OPERATION_UNCERTAIN',
+        operationMayHaveApplied: true,
+        error: 'localClient.achievement.store is not a function',
+      };
+    },
+    getAchievementVerification: async () => ({ success: true, unlocked: false }),
+  });
+  const scheduler = createScheduler({
+    executor: createRealSteamExecutionAdapter({ steamManager }),
+    verifier: createRealSteamVerificationAdapter({ steamManager }),
+    now: () => 4_000,
+    persist: () => true,
+  });
+
+  await scheduler.setSchedule({
+    version: 2,
+    id: 'schedule-480',
+    appId: 480,
+    state: SCHEDULE_STATE.PAUSED,
+    items: [{ id: 'ACH_WIN', sequencePosition: 1, status: ITEM_STATUS.SCHEDULED, attempts: 0, maxRetries: 2, scheduledAt: 0, executionToken: null }],
+  });
+  await scheduler.start();
+  await scheduler.processDue();
+
+  const current = scheduler.getSchedule();
+  assert.equal(unlockCalls, 1);
+  assert.equal(current.state, SCHEDULE_STATE.PAUSED);
+  assert.equal(current.items[0].status, ITEM_STATUS.RETRY);
+  assert.equal(current.items[0].verification, VERIFICATION.UNVERIFIED);
+});
+
+test('post-activation store API failure stays paused when real verification is uncertain', async () => {
+  let unlockCalls = 0;
+  const steamManager = fakeSteamManager({
+    unlockAchievement: async () => {
+      unlockCalls += 1;
+      return {
+        success: false,
+        errorCode: 'OPERATION_UNCERTAIN',
+        operationMayHaveApplied: true,
+        error: 'localClient.achievement.store is not a function',
+      };
+    },
+    getAchievementVerification: async () => ({ success: false, errorCode: 'STEAM_READ_UNAVAILABLE', error: 'Steam Web API is delayed' }),
+  });
+  const scheduler = createScheduler({
+    executor: createRealSteamExecutionAdapter({ steamManager }),
+    verifier: createRealSteamVerificationAdapter({ steamManager }),
+    now: () => 5_000,
+    persist: () => true,
+  });
+
+  await scheduler.setSchedule({
+    version: 2,
+    id: 'schedule-480',
+    appId: 480,
+    state: SCHEDULE_STATE.PAUSED,
+    items: [{ id: 'ACH_WIN', sequencePosition: 1, status: ITEM_STATUS.SCHEDULED, attempts: 0, maxRetries: 2, scheduledAt: 0, executionToken: null }],
+  });
+  await scheduler.start();
+  await scheduler.processDue();
+
+  const current = scheduler.getSchedule();
+  assert.equal(unlockCalls, 1);
+  assert.equal(current.state, SCHEDULE_STATE.PAUSED);
+  assert.equal(current.items[0].status, ITEM_STATUS.VERIFICATION_REQUIRED);
+  assert.equal(current.items[0].verification, VERIFICATION.UNCERTAIN);
+});

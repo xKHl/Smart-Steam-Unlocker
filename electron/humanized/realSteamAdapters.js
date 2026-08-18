@@ -113,7 +113,12 @@ function createRealSteamVerificationAdapter({ steamManager }) {
         if (TERMINAL_CODES.has(code)) return { verification: 'failed', error: result?.error || 'Steam verification rejected the operation.' };
         return { verification: 'uncertain', error: result?.error || 'Steam verification is unavailable.' };
       }
-      if (result.unlocked) return { verification: 'verified' };
+      if (result.unlocked) {
+        // Reuse the existing optimistic-cache and renderer unlock event only
+        // after the authoritative remote read confirms the Steam state.
+        steamManager.confirmVerifiedAchievement?.(appId, achievementId);
+        return { verification: 'verified' };
+      }
       return { verification: 'unverified', retryable: true, error: 'Steam reports that the achievement is not unlocked.' };
     },
   };
