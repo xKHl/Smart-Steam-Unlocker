@@ -65,6 +65,10 @@ steamProcessPoll.unref?.();
  *   'PRIVATE_PROFILE'    — empty response (profile privacy)
  *   'NO_GAMES_RETURNED'  — unexpected empty games array
  */
+async function getTradingCardBadges(apiKey, steamId) {
+  return steamApiClient.getPlayerBadges({ apiKey, steamId });
+}
+
 async function getOwnedGames(apiKey, steamId) {
   if (!apiKey)   throw new Error('NO_API_KEY');
   if (!steamId)  throw new Error('STEAM_NOT_CONNECTED');
@@ -606,6 +610,7 @@ module.exports = {
   getSteamRuntimeDirectory,
   prepareSteamRuntimeContext,
   getOwnedGames,
+  getTradingCardBadges,
   switchGame,
   getAchievements,
   getAchievementVerification,

@@ -6,6 +6,7 @@ import StatusBar    from './components/StatusBar';
 import Dashboard    from './pages/Dashboard';
 import Library      from './pages/Library';
 import Achievements from './pages/Achievements';
+import TradingCards from './pages/TradingCards';
 import Settings     from './pages/Settings';
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -169,6 +170,7 @@ function AppContent() {
               <Route path="/"             element={<Dashboard    steamStatus={steamStatus} selectedGame={selectedGame} onSteamReconnect={handleSteamReconnect} />} />
               <Route path="/library"      element={<Library      selectedGame={selectedGame} onGameSelect={handleGameSelect} />} />
               <Route path="/achievements" element={<Achievements selectedGame={selectedGame} onChangeGame={() => navigate('/library')} />} />
+              <Route path="/trading-cards" element={<TradingCards />} />
               <Route path="/settings"     element={<Settings />} />
             </Routes>
           </main>

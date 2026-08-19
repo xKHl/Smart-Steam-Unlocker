@@ -1,11 +1,12 @@
 import React from 'react';
 import { NavLink } from 'react-router-dom';
-import { LayoutDashboard, Library, Trophy, Settings, Zap } from 'lucide-react';
+import { CreditCard, LayoutDashboard, Library, Trophy, Settings, Zap } from 'lucide-react';
 
 const NAV_LINKS = [
   { to: '/',             icon: LayoutDashboard, label: 'Dashboard',    id: 'nav-dashboard',    end: true  },
   { to: '/library',      icon: Library,         label: 'Library',      id: 'nav-library',      end: false },
   { to: '/achievements', icon: Trophy,          label: 'Achievements', id: 'nav-achievements', end: false },
+  { to: '/trading-cards', icon: CreditCard,      label: 'Trading Cards', id: 'nav-trading-cards', end: false },
   { to: '/settings',     icon: Settings,        label: 'Settings',     id: 'nav-settings',     end: false },
 ];
 

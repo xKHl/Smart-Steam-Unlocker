@@ -68,6 +68,21 @@ contextBridge.exposeInMainWorld('steamAPI', {
     },
   },
 
+  // ─── Trading Cards ─────────────────────────────────────────────────────────
+  tradingCards: {
+    getLibrary: (opts = {}) => ipcRenderer.invoke('trading-cards:get-library', opts),
+    getStatus: () => ipcRenderer.invoke('trading-cards:get-status'),
+    start: (appId) => ipcRenderer.invoke('trading-cards:start', appId),
+    pause: () => ipcRenderer.invoke('trading-cards:pause'),
+    resume: () => ipcRenderer.invoke('trading-cards:resume'),
+    stop: () => ipcRenderer.invoke('trading-cards:stop'),
+    onUpdate: (cb) => {
+      const listener = (_e, status) => cb(status);
+      ipcRenderer.on('trading-cards:update', listener);
+      return () => ipcRenderer.removeListener('trading-cards:update', listener);
+    },
+  },
+
   // ─── Timer Service ─────────────────────────────────────────────────────────
   timer: {
     startQueue: (achievements, base, variance, fixedMins) =>

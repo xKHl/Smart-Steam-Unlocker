@@ -11,6 +11,7 @@ const steamManager  = require('../steamManager');
 const settingsStore = require('../settingsStore');
 const credentialStore = require('../credentialStore');
 const humanizedService = require('../humanizedService');
+const tradingCardsService = require('../tradingCardsService');
 const { orderAchievements } = require('../humanized/ordering');
 const {
   assertAppId,
@@ -172,6 +173,26 @@ function registerIpcHandlers() {
     const { appId, achievementId } = sanitizeUnlockPayload(payload);
     return steamManager.unlockAchievement(achievementId, appId);
   });
+
+  // ─── Trading Cards (separate Steam launch monitor) ────────────────────────
+  registerHandler('trading-cards:get-library', async (_e, options) => {
+    const { forceRefresh } = sanitizeOwnedGamesOptions(options);
+    return tradingCardsService.getLibrary({ forceRefresh });
+  });
+  registerHandler('trading-cards:get-status', () => tradingCardsService.getStatus());
+  registerHandler('trading-cards:start', async (_e, rawAppId) => {
+    const appId = assertAppId(rawAppId);
+    return tradingCardsService.start({
+      appId,
+      // Only a validated positive integer can reach the constructed Steam URI.
+      // The Steam client receives a launch request; the monitor never treats
+      // this request as proof that an arbitrary game is actually running.
+      launchGame: () => shell.openExternal(`steam://run/${appId}`),
+    });
+  });
+  registerHandler('trading-cards:pause', () => tradingCardsService.pause());
+  registerHandler('trading-cards:resume', () => tradingCardsService.resume());
+  registerHandler('trading-cards:stop', () => tradingCardsService.stop());
 
   // ─── Legacy Timer (existing instant behavior) ─────────────────────────────
   const timerService = require('../timerService');

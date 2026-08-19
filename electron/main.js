@@ -128,8 +128,10 @@ app.whenReady().then(async () => {
   // through their verifier-first recovery policy.
   const timerService = require('./timerService');
   const humanizedService = require('./humanizedService');
+  const tradingCardsService = require('./tradingCardsService');
   timerService.init();
   await humanizedService.init();
+  await tradingCardsService.init();
 
   // ③ Open the main window
   await createWindow();

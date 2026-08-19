@@ -20,6 +20,7 @@ const STEAM_READ_ERROR = Object.freeze({
   PLAYER_ACHIEVEMENT_MISSING: 'PLAYER_ACHIEVEMENT_MISSING',
   SCHEMA_INVALID: 'SCHEMA_INVALID',
   ACHIEVEMENT_NOT_FOUND: 'ACHIEVEMENT_NOT_FOUND',
+  BADGE_STATE_INVALID: 'BADGE_STATE_INVALID',
 });
 
 function classifyHttpStatus(status) {
@@ -90,7 +91,25 @@ function createSteamApiClient({ fetchImpl = fetch, timeoutMs = 10_000 } = {}) {
     return { success: true, endpoint: 'achievement-schema', found: achievements.some((achievement) => achievement?.name === achievementId) };
   }
 
-  return { getPlayerAchievementState, hasSchemaAchievement, requestJson };
+  async function getPlayerBadges({ apiKey, steamId }) {
+    if (!apiKey) return readError(STEAM_READ_ERROR.MISSING_API_KEY, 'player-badges');
+    if (!steamId) return readError(STEAM_READ_ERROR.MISSING_STEAM_ID, 'player-badges');
+    const url = steamApiUrl('IPlayerService', 'GetBadges/v1', { key: apiKey, steamid: String(steamId) });
+    const result = await requestJson(fetchImpl, url, 'player-badges', timeoutMs);
+    if (!result.success) return result;
+
+    const badges = result.data?.response?.badges;
+    if (!Array.isArray(badges)) return readError(STEAM_READ_ERROR.BADGE_STATE_INVALID, 'player-badges');
+    const cardBadges = badges.flatMap((badge) => {
+      const appId = Number(badge?.appid);
+      const remainingDrops = Number(badge?.cards_remaining);
+      if (!Number.isInteger(appId) || appId <= 0 || !Number.isInteger(remainingDrops) || remainingDrops < 0) return [];
+      return [{ appId, remainingDrops }];
+    });
+    return { success: true, endpoint: 'player-badges', badges: cardBadges };
+  }
+
+  return { getPlayerAchievementState, hasSchemaAchievement, getPlayerBadges, requestJson };
 }
 
 module.exports = {
