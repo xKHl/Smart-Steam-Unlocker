@@ -17,12 +17,11 @@ export function verificationPresentation(item, scheduleState) {
   const terminal = exhausted && TERMINAL_VERIFICATION_CODES.has(reasonCode);
 
   if (!exhausted) {
-    const submitted = metadata.attemptCount === 0 && item.executionResult?.outcome === 'success';
     return {
       tone: 'progress',
-      title: submitted ? 'Unlock submitted' : 'Confirming with Steam...',
-      detail: submitted ? 'Confirming with Steam...' : (metadata.attemptCount > 0 ? 'Waiting for Steam confirmation...' : 'Checking with Steam...'),
-      body: 'The unlock was submitted. We will confirm it safely before any retry.',
+      title: 'Unlock submitted',
+      detail: 'Confirming with Steam in background…',
+      body: 'Steam confirmation continues automatically in the background. You can keep using the app; no action is needed.',
       showRecheck: false,
       recheckDisabled: true,
     };
@@ -53,7 +52,7 @@ export function itemStatusPresentation(status) {
   const statuses = {
     scheduled: { label: 'Scheduled', tone: 'neutral' },
     executing: { label: 'Activating', tone: 'active' },
-    'verification-required': { label: 'Confirming with Steam', tone: 'progress' },
+    'verification-required': { label: 'Confirming in background', tone: 'progress' },
     retry: { label: 'Retry scheduled', tone: 'warning' },
     completed: { label: 'Completed', tone: 'success' },
     failed: { label: 'Failed', tone: 'danger' },

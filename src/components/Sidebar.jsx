@@ -41,10 +41,10 @@ export default function Sidebar({ steamStatus, selectedGame, version }) {
         ))}
       </nav>
 
-      {/* ── Active Game ───────────────────────────────────────────────────── */}
+      {/* ── Selected Game ─────────────────────────────────────────────────── */}
       {selectedGame && (
         <div className="sidebar-active-game">
-          <p className="nav-section-label" style={{ paddingBottom: 8 }}>Active Game</p>
+          <p className="nav-section-label" style={{ paddingBottom: 8 }}>Selected Game</p>
           <div className="active-game-card">
             <img
               src={selectedGame.headerImage}

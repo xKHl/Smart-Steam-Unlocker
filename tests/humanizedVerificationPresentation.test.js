@@ -13,19 +13,19 @@ function verificationItem(metadata = {}) {
   };
 }
 
-test('automatic verification uses calm in-progress copy and disables manual recheck', async () => {
+test('successful submission uses calm background-confirmation copy and hides manual recheck', async () => {
   const { verificationPresentation, itemStatusPresentation } = await presentationModule();
   const view = verificationPresentation(verificationItem({ attemptCount: 1, exhausted: false }), 'running');
 
   assert.deepEqual(view, {
     tone: 'progress',
-    title: 'Confirming with Steam...',
-    detail: 'Waiting for Steam confirmation...',
-    body: 'The unlock was submitted. We will confirm it safely before any retry.',
+    title: 'Unlock submitted',
+    detail: 'Confirming with Steam in background…',
+    body: 'Steam confirmation continues automatically in the background. You can keep using the app; no action is needed.',
     showRecheck: false,
     recheckDisabled: true,
   });
-  assert.deepEqual(itemStatusPresentation('verification-required'), { label: 'Confirming with Steam', tone: 'progress' });
+  assert.deepEqual(itemStatusPresentation('verification-required'), { label: 'Confirming in background', tone: 'progress' });
 });
 
 test('exhausted nonterminal confirmation remains calm and explicitly protects against duplicate unlocks', async () => {

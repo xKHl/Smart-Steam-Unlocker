@@ -13,7 +13,7 @@ function formatPlaytime(minutes) {
  * • Displays the Steam CDN header image (460×215) with shimmer loading
  * • Falls back to a generic icon if the CDN image is missing
  * • Hover overlay shows "Browse Achievements" CTA
- * • Shows playtime badge and currently-selected indicator
+ * • Shows playtime badge and explicitly selected-game indicator
  */
 export default function GameCard({ game, onClick, isSelected }) {
   const [imgLoaded, setImgLoaded] = useState(false);
@@ -70,10 +70,10 @@ export default function GameCard({ game, onClick, isSelected }) {
           </div>
         )}
 
-        {/* Selected "Active" badge — top-right */}
-        {isSelected && (
-          <div className="game-card-selected-badge" aria-label="Currently selected">
-            Active
+      {/* Selected-game badge — top-right */}
+      {isSelected && (
+          <div className="game-card-selected-badge" aria-label="Selected game">
+            Selected
           </div>
         )}
       </div>

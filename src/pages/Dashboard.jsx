@@ -128,9 +128,9 @@ export default function Dashboard({ steamStatus, selectedGame, onSteamReconnect 
         sub: hasCurrentGameData ? total ? `${unlocked} of ${total} unlocked` : 'This game has no achievement data' : 'For the selected game',
       },
       {
-        id: 'stat-activity', icon: TrendingUp, label: 'Activity', color: 'violet',
-        value: 'Not tracked',
-        sub: 'Activity tracking is not enabled',
+        id: 'stat-activity', icon: TrendingUp, label: 'Last Activity', color: 'violet',
+        value: 'Unavailable',
+        sub: 'Steam library data has no reliable last-played timestamp',
       },
     ];
   }, [overview, selectedGame]);
@@ -145,7 +145,7 @@ export default function Dashboard({ steamStatus, selectedGame, onSteamReconnect 
     ? `Welcome back, ${steamStatus.playerName}`
     : 'Smart Steam Unlocker';
   const subline = steamStatus.connected
-    ? selectedGame ? `Ready to continue with ${selectedGame.name}.` : 'Your Steam client is connected. Choose a game to begin.'
+    ? selectedGame ? `Selected game: ${selectedGame.name}.` : 'Your Steam client is connected. Choose a game to begin.'
     : 'Connect to Steam to start managing your achievements.';
   const overviewError = overview.errorCode ? DATA_ERROR_COPY[overview.errorCode] || DATA_ERROR_COPY.FETCH_ERROR : null;
 
@@ -171,7 +171,7 @@ export default function Dashboard({ steamStatus, selectedGame, onSteamReconnect 
         </div>
         <div className="dashboard-hero-actions">
           <button className="hero-cta" onClick={() => navigate(selectedGame ? '/achievements' : '/library')}>
-            {selectedGame ? 'Continue Current Game' : 'Open Library'} <ChevronRight size={15} />
+            {selectedGame ? 'Open Selected Game' : 'Browse Library'} <ChevronRight size={15} />
           </button>
           <button className="btn-secondary" onClick={() => navigate('/settings')}><Settings size={13} /> Settings</button>
         </div>
@@ -229,19 +229,22 @@ export default function Dashboard({ steamStatus, selectedGame, onSteamReconnect 
         <article className="dashboard-current-card">
           <div className="dashboard-card-heading">
             <div className="dashboard-card-icon"><Gamepad2 size={16} /></div>
-            <div><p className="dashboard-eyebrow">Current focus</p><h2>Continue where you left off</h2></div>
+            <div><p className="dashboard-eyebrow">Selected game</p><h2>Your current selection</h2></div>
           </div>
           {selectedGame ? (
             <>
               <p className="dashboard-current-game">{selectedGame.name}</p>
-              <p>Review its achievements, select what matters next, or continue an existing schedule.</p>
-              <button className="btn-success" onClick={() => navigate('/achievements')}><Trophy size={14} /> Browse achievements</button>
+              <p>This game was selected from your library. Review its achievements or continue its existing schedule.</p>
+              <div className="dashboard-current-actions">
+                <button className="btn-success" onClick={() => navigate('/achievements')}><Trophy size={14} /> Browse achievements</button>
+                <button className="btn-secondary" onClick={() => navigate('/library')}><BookOpen size={14} /> Change game</button>
+              </div>
             </>
           ) : (
             <>
               <p className="dashboard-current-game">No game selected</p>
-              <p>Open your Steam library to select a game and view its achievement progress.</p>
-              <button className="btn-secondary" onClick={() => navigate('/library')}><BookOpen size={14} /> Browse library</button>
+              <p>Choose a game from your Steam library to view its achievement progress.</p>
+              <button className="btn-secondary" onClick={() => navigate('/library')}><BookOpen size={14} /> Browse Library</button>
             </>
           )}
         </article>

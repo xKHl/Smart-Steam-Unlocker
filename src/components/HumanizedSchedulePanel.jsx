@@ -312,7 +312,7 @@ export default function HumanizedSchedulePanel({ selectedGame, achievements, sel
               <p>{schedule.orderMode === 'original' ? 'Original Steam order' : ORDER_OPTIONS.find((option) => option.value === schedule.orderMode)?.label || 'Custom order'} · {verificationDetail || (summary?.verificationRequired ? `${summary.verificationRequired} awaiting verification` : 'Ready to continue')}</p>
             </div>
             <div className="humanized-actions">
-              {verificationItem && (
+              {verificationView?.showRecheck && (
                 <button
                   className="btn-secondary humanized-recheck-action"
                   onClick={() => invoke(() => window.steamAPI.humanized.recheckNow())}
@@ -349,7 +349,7 @@ export default function HumanizedSchedulePanel({ selectedGame, achievements, sel
                     <div className="humanized-timeline-title-row">
                       <h4>{item.name || item.id}</h4>
                       <time dateTime={Number.isFinite(item.verificationMeta?.nextVerificationAt || item.nextAttemptAt || item.scheduledAt) ? new Date(item.verificationMeta?.nextVerificationAt || item.nextAttemptAt || item.scheduledAt).toISOString() : undefined}>
-                        <Clock3 size={13} /> {item.status === 'verification-required' ? (item.verificationMeta?.exhausted ? 'Pending confirmation' : `Confirming ${remainingLabel(item.verificationMeta?.nextVerificationAt)}`) : `Scheduled ${remainingLabel(item.nextAttemptAt || item.scheduledAt)}`}
+                        <Clock3 size={13} /> {item.status === 'verification-required' ? (item.verificationMeta?.exhausted ? 'Pending confirmation' : `Confirming in background ${remainingLabel(item.verificationMeta?.nextVerificationAt)}`) : `Scheduled ${remainingLabel(item.nextAttemptAt || item.scheduledAt)}`}
                       </time>
                     </div>
                     <div className="humanized-timeline-meta">

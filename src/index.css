@@ -1905,6 +1905,7 @@ textarea { user-select: text; }
 .dashboard-current-card > p:not(.dashboard-current-game) { min-height: 38px; margin: 0 0 16px; color: var(--text-secondary); font-size: 12px; line-height: 1.55; }
 .dashboard-current-card .btn-success,
 .dashboard-current-card .btn-secondary { align-self: flex-start; }
+.dashboard-current-actions { display: flex; align-items: center; gap: 9px; flex-wrap: wrap; }
 
 .dashboard-action-list { display: grid; gap: 3px; }
 .dashboard-action-list button {
