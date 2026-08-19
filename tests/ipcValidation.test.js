@@ -24,8 +24,14 @@ test('IPC validators accept bounded canonical payloads', () => {
   assert.equal(sanitizeOwnedGamesOptions({ forceRefresh: true }).forceRefresh, true);
   assert.equal(sanitizeHumanizedPayload({
     appId: 480, achievements: [achievement], orderMode: 'original', seed: 'safe-seed', startAt: 1_000,
-    timelineOptions: { minIntervalMs: 1_000, maxIntervalMs: 2_000, maxRetries: 2 },
+    timingPreset: 'natural',
+    timelineOptions: { initialDelayMs: 500, baseIntervalMs: 90_000, varianceMs: 15_000, minIntervalMs: 60_000, maxIntervalMs: 120_000, maxRetries: 2 },
   }).appId, 480);
+  assert.deepEqual(sanitizeHumanizedPayload({
+    appId: 480, achievements: [achievement], orderMode: 'original', seed: 'timed', startAt: 1_000,
+    timingPreset: 'natural',
+    timelineOptions: { initialDelayMs: 0, baseIntervalMs: 90_000, varianceMs: 15_000, minIntervalMs: 60_000, maxIntervalMs: 120_000 },
+  }).timelineOptions, { initialDelayMs: 0, baseIntervalMs: 90_000, varianceMs: 15_000, minIntervalMs: 60_000, maxIntervalMs: 120_000 });
 });
 
 test('IPC validators reject wrong types, unsafe URLs, unexpected fields, duplicates, and invalid timing', () => {
@@ -42,5 +48,13 @@ test('IPC validators reject wrong types, unsafe URLs, unexpected fields, duplica
   invalid(() => sanitizeHumanizedPayload({
     appId: 480, achievements: [achievement], orderMode: 'original', seed: 'safe', startAt: 1,
     timelineOptions: { minIntervalMs: 2_000, maxIntervalMs: 1_000 },
+  }));
+  invalid(() => sanitizeHumanizedPayload({
+    appId: 480, achievements: [achievement], orderMode: 'original', seed: 'safe', startAt: 1,
+    timelineOptions: { baseIntervalMs: 500, minIntervalMs: 1_000, maxIntervalMs: 2_000 },
+  }));
+  invalid(() => sanitizeHumanizedPayload({
+    appId: 480, achievements: [achievement], orderMode: 'original', seed: 'safe', startAt: 1,
+    timelineOptions: { initialDelayMs: -1 },
   }));
 });

@@ -29,6 +29,26 @@ function validateVerificationMetadata(metadata) {
   if (metadata.autoContinue !== undefined) assert(typeof metadata.autoContinue === 'boolean', 'Verification auto-continue flag must be boolean.');
 }
 
+function validateTiming(timing) {
+  if (timing === undefined || timing === null) return;
+  assert(timing && typeof timing === 'object' && !Array.isArray(timing), 'Schedule timing must be an object.');
+  for (const key of ['initialDelayMs', 'varianceMs', 'minIntervalMs', 'maxIntervalMs', 'maxRetries']) {
+    if (timing[key] !== undefined) assert(Number.isInteger(timing[key]) && timing[key] >= 0, `Schedule timing ${key} is invalid.`);
+  }
+  if (timing.baseIntervalMs !== undefined && timing.baseIntervalMs !== null) {
+    assert(Number.isInteger(timing.baseIntervalMs) && timing.baseIntervalMs >= 0, 'Schedule timing baseIntervalMs is invalid.');
+  }
+  if (timing.preset !== undefined && timing.preset !== null) {
+    assert(typeof timing.preset === 'string' && timing.preset.length > 0 && timing.preset.length <= 32, 'Schedule timing preset is invalid.');
+  }
+  if (Number.isInteger(timing.minIntervalMs) && Number.isInteger(timing.maxIntervalMs)) {
+    assert(timing.minIntervalMs > 0 && timing.minIntervalMs <= timing.maxIntervalMs, 'Schedule timing bounds are invalid.');
+  }
+  if (Number.isInteger(timing.baseIntervalMs) && Number.isInteger(timing.minIntervalMs) && Number.isInteger(timing.maxIntervalMs)) {
+    assert(timing.baseIntervalMs >= timing.minIntervalMs && timing.baseIntervalMs <= timing.maxIntervalMs, 'Schedule timing base interval is outside its bounds.');
+  }
+}
+
 function validateSchedule(schedule) {
   assert(schedule && typeof schedule === 'object' && !Array.isArray(schedule), 'Schedule must be an object.');
   assert(schedule.version === SCHEDULE_VERSION, `Unsupported schedule version ${String(schedule.version)}.`, 'UNSUPPORTED_SCHEDULE_VERSION');
@@ -36,6 +56,7 @@ function validateSchedule(schedule) {
   assert(Number.isInteger(schedule.appId) && schedule.appId > 0 && schedule.appId <= 2_147_483_647, 'Schedule App ID is invalid.');
   assert(VALID_SCHEDULE_STATES.has(schedule.state), 'Schedule state is invalid.');
   assert(Array.isArray(schedule.items) && schedule.items.length > 0 && schedule.items.length <= 5_000, 'Schedule items are invalid.');
+  validateTiming(schedule.timing);
 
   const seen = new Set();
   schedule.items.forEach((item, index) => {

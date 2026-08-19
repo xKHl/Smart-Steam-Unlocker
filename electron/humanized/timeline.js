@@ -36,12 +36,19 @@ function normalizeTimelineOptions(options = {}) {
   const minIntervalMs = options.minIntervalMs === undefined ? MIN_INTERVAL_MS : options.minIntervalMs;
   const maxIntervalMs = options.maxIntervalMs === undefined ? MAX_INTERVAL_MS : options.maxIntervalMs;
   const maxRetries = options.maxRetries === undefined ? 2 : options.maxRetries;
+  const initialDelayMs = options.initialDelayMs === undefined ? 0 : options.initialDelayMs;
+  const baseIntervalMs = options.baseIntervalMs === undefined || options.baseIntervalMs === null ? null : options.baseIntervalMs;
+  const varianceMs = options.varianceMs === undefined ? 0 : options.varianceMs;
   if (!Number.isFinite(startAt) || startAt < 0) throw new Error('Timeline start time must be a non-negative finite timestamp.');
   if (!Number.isInteger(minIntervalMs) || minIntervalMs <= 0 || minIntervalMs > MAX_INTERVAL_MS) throw new Error('Timeline minimum interval is invalid.');
   if (!Number.isInteger(maxIntervalMs) || maxIntervalMs <= 0 || maxIntervalMs > MAX_INTERVAL_MS) throw new Error('Timeline maximum interval is invalid.');
   if (minIntervalMs > maxIntervalMs) throw new Error('Timeline minimum interval cannot exceed maximum interval.');
+  if (!Number.isInteger(initialDelayMs) || initialDelayMs < 0 || initialDelayMs > MAX_INTERVAL_MS) throw new Error('Timeline initial delay is invalid.');
+  if (baseIntervalMs !== null && (!Number.isInteger(baseIntervalMs) || baseIntervalMs < minIntervalMs || baseIntervalMs > maxIntervalMs)) throw new Error('Timeline base interval must be within the configured bounds.');
+  if (!Number.isInteger(varianceMs) || varianceMs < 0 || varianceMs > MAX_INTERVAL_MS) throw new Error('Timeline variance is invalid.');
+  if (baseIntervalMs === null && varianceMs > 0) throw new Error('Timeline variance requires a base interval.');
   if (!Number.isInteger(maxRetries) || maxRetries < 0 || maxRetries > 10) throw new Error('Timeline retry policy is invalid.');
-  return { ...options, startAt: Math.floor(startAt), minIntervalMs, maxIntervalMs, maxRetries };
+  return { ...options, startAt: Math.floor(startAt), minIntervalMs, maxIntervalMs, initialDelayMs, baseIntervalMs, varianceMs, maxRetries };
 }
 
 function rarityIntervalMs(globalPercent, random, options = {}) {
@@ -54,6 +61,12 @@ function rarityIntervalMs(globalPercent, random, options = {}) {
   return Math.round(clamp(base * jitter, minIntervalMs, maxIntervalMs));
 }
 
+function scheduledIntervalMs(achievement, random, options) {
+  if (options.baseIntervalMs === null) return rarityIntervalMs(achievement.globalPercent, random, options);
+  const variance = options.varianceMs === 0 ? 0 : Math.round((random() * 2 - 1) * options.varianceMs);
+  return Math.round(clamp(options.baseIntervalMs + variance, options.minIntervalMs, options.maxIntervalMs));
+}
+
 function createScheduleTimeline(orderedAchievements, options = {}) {
   if (!Array.isArray(orderedAchievements)) throw new Error('Timeline achievements must be an array.');
   const normalizedOptions = normalizeTimelineOptions(options);
@@ -64,8 +77,8 @@ function createScheduleTimeline(orderedAchievements, options = {}) {
 
   return orderedAchievements.map((achievement, index) => {
     const delayMs = index === 0
-      ? 0
-      : rarityIntervalMs(achievement.globalPercent, random, normalizedOptions);
+      ? normalizedOptions.initialDelayMs
+      : scheduledIntervalMs(achievement, random, normalizedOptions);
     cursor += delayMs;
 
     return {
@@ -100,4 +113,5 @@ module.exports = {
   hashSeed,
   normalizeTimelineOptions,
   rarityIntervalMs,
+  scheduledIntervalMs,
 };

@@ -17,10 +17,11 @@ export function verificationPresentation(item, scheduleState) {
   const terminal = exhausted && TERMINAL_VERIFICATION_CODES.has(reasonCode);
 
   if (!exhausted) {
+    const submitted = metadata.attemptCount === 0 && item.executionResult?.outcome === 'success';
     return {
       tone: 'progress',
-      title: 'Confirming with Steam...',
-      detail: metadata.attemptCount > 0 ? 'Waiting for Steam confirmation...' : 'Checking with Steam...',
+      title: submitted ? 'Unlock submitted' : 'Confirming with Steam...',
+      detail: submitted ? 'Confirming with Steam...' : (metadata.attemptCount > 0 ? 'Waiting for Steam confirmation...' : 'Checking with Steam...'),
       body: 'The unlock was submitted. We will confirm it safely before any retry.',
       showRecheck: false,
       recheckDisabled: true,

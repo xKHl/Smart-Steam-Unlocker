@@ -5,7 +5,7 @@
  */
 
 const { orderAchievements, ORDER_MODES } = require('./ordering');
-const { createScheduleTimeline } = require('./timeline');
+const { createScheduleTimeline, normalizeTimelineOptions } = require('./timeline');
 
 const SCHEDULE_STATE = Object.freeze({
   PAUSED: 'paused',
@@ -55,27 +55,38 @@ class PersistenceError extends Error {
   }
 }
 
-function scheduleIdFor(appId, seed, ordered) {
+function scheduleIdFor(appId, seed, ordered, timing = {}) {
   const ids = ordered.map(({ id }) => id).join('|');
   let hash = 0;
-  const text = `${appId}:${seed}:${ids}`;
+  const text = `${appId}:${seed}:${ids}:${JSON.stringify(timing)}`;
   for (let index = 0; index < text.length; index += 1) hash = ((hash << 5) - hash + text.charCodeAt(index)) | 0;
   return `humanized-${appId}-${(hash >>> 0).toString(36)}`;
 }
 
-function createSchedule({ appId, achievements, orderMode = ORDER_MODES.ORIGINAL, seed = 'humanized-schedule', startAt = Date.now(), timelineOptions = {} }) {
+function createSchedule({ appId, achievements, orderMode = ORDER_MODES.ORIGINAL, seed = 'humanized-schedule', startAt = Date.now(), timingPreset = null, timelineOptions = {} }) {
   if (!appId && appId !== 0) throw new Error('A valid appId is required to create a schedule.');
   const ordered = orderAchievements(achievements, orderMode);
   if (!ordered.length) throw new Error('At least one valid achievement is required to create a schedule.');
 
   const timelineStartAt = Number.isFinite(startAt) ? Math.floor(startAt) : Date.now();
-  const items = createScheduleTimeline(ordered, { seed, startAt: timelineStartAt, ...timelineOptions });
+  const normalizedTiming = normalizeTimelineOptions({ seed, startAt: timelineStartAt, ...timelineOptions });
+  const items = createScheduleTimeline(ordered, normalizedTiming);
+  const timing = {
+    initialDelayMs: normalizedTiming.initialDelayMs,
+    baseIntervalMs: normalizedTiming.baseIntervalMs,
+    varianceMs: normalizedTiming.varianceMs,
+    minIntervalMs: normalizedTiming.minIntervalMs,
+    maxIntervalMs: normalizedTiming.maxIntervalMs,
+    maxRetries: normalizedTiming.maxRetries,
+    preset: typeof timingPreset === 'string' && timingPreset.trim() ? timingPreset.trim() : null,
+  };
   return {
     version: 2,
-    id: scheduleIdFor(appId, seed, ordered),
+    id: scheduleIdFor(appId, seed, ordered, timing),
     appId,
     seed: String(seed),
     orderMode,
+    timing,
     state: SCHEDULE_STATE.PAUSED,
     createdAt: timelineStartAt,
     updatedAt: timelineStartAt,
@@ -231,19 +242,38 @@ function getHeadNonTerminalItem(schedule) {
     .sort((left, right) => (left.sequencePosition ?? Number.MAX_SAFE_INTEGER) - (right.sequencePosition ?? Number.MAX_SAFE_INTEGER))[0] ?? null;
 }
 
-function getHeadAction(schedule, now) {
-  const item = getHeadNonTerminalItem(schedule);
-  if (!item) return null;
+function getNextExecutableItem(schedule) {
+  return schedule.items
+    .filter((item) => [ITEM_STATUS.SCHEDULED, ITEM_STATUS.RETRY].includes(item.status))
+    .sort((left, right) => (left.sequencePosition ?? Number.MAX_SAFE_INTEGER) - (right.sequencePosition ?? Number.MAX_SAFE_INTEGER))[0] ?? null;
+}
 
-  if (item.status === ITEM_STATUS.VERIFICATION_REQUIRED) {
-    const metadata = item.verificationMeta;
-    if (metadata?.exhausted) return null;
-    if (!Number.isFinite(metadata?.nextVerificationAt) || metadata.nextVerificationAt <= now) return { type: 'verify', item };
-    return null;
+function getNextVerificationItem(schedule) {
+  return schedule.items
+    .filter((item) => item.status === ITEM_STATUS.VERIFICATION_REQUIRED && !item.verificationMeta?.exhausted)
+    .sort((left, right) => {
+      const leftDue = left.verificationMeta?.nextVerificationAt ?? Number.MAX_SAFE_INTEGER;
+      const rightDue = right.verificationMeta?.nextVerificationAt ?? Number.MAX_SAFE_INTEGER;
+      return leftDue - rightDue || (left.sequencePosition ?? Number.MAX_SAFE_INTEGER) - (right.sequencePosition ?? Number.MAX_SAFE_INTEGER);
+    })[0] ?? null;
+}
+
+function getHeadAction(schedule, now) {
+  // A remote Steam visibility delay after a submitted unlock must not freeze
+  // later, independently scheduled work. Ordering remains strict among items
+  // that are eligible for execution, while verification stays a safe barrier
+  // only for retrying the same submitted item.
+  const executable = getNextExecutableItem(schedule);
+  if (executable) {
+    const dueAt = executable.status === ITEM_STATUS.RETRY ? (executable.nextAttemptAt ?? executable.scheduledAt) : executable.scheduledAt;
+    if (dueAt <= now) return { type: 'execute', item: executable };
   }
-  if (item.status === ITEM_STATUS.EXECUTING || item.status === ITEM_STATUS.PENDING) return null;
-  if (item.status === ITEM_STATUS.SCHEDULED && item.scheduledAt <= now) return { type: 'execute', item };
-  if (item.status === ITEM_STATUS.RETRY && (item.nextAttemptAt ?? item.scheduledAt) <= now) return { type: 'execute', item };
+
+  const verification = getNextVerificationItem(schedule);
+  if (verification) {
+    const dueAt = verification.verificationMeta?.nextVerificationAt;
+    if (!Number.isFinite(dueAt) || dueAt <= now) return { type: 'verify', item: verification };
+  }
   return null;
 }
 
@@ -466,8 +496,8 @@ function createScheduler({ executor, verifier, persist = () => true, now = () =>
 
   async function verifyHead(scheduleId, expectedGeneration, itemId) {
     if (!schedule || schedule.id !== scheduleId || generation !== expectedGeneration) return clone(schedule);
-    const head = getHeadNonTerminalItem(schedule);
-    if (!head || head.id !== itemId || head.status !== ITEM_STATUS.VERIFICATION_REQUIRED) return clone(schedule);
+    const head = schedule.items.find((item) => item.id === itemId && item.status === ITEM_STATUS.VERIFICATION_REQUIRED);
+    if (!head) return clone(schedule);
 
     let verificationResult;
     try {
@@ -586,8 +616,10 @@ function createScheduler({ executor, verifier, persist = () => true, now = () =>
   async function recheckNow() {
     if (!schedule) throw new Error('No schedule has been created.');
     if (processing) throw new SchedulerBusyError('Cannot recheck while a scheduler operation is in flight.');
-    const head = getHeadNonTerminalItem(schedule);
-    if (!head || head.status !== ITEM_STATUS.VERIFICATION_REQUIRED) {
+    const head = schedule.items
+      .filter((item) => item.status === ITEM_STATUS.VERIFICATION_REQUIRED)
+      .sort((left, right) => (left.sequencePosition ?? Number.MAX_SAFE_INTEGER) - (right.sequencePosition ?? Number.MAX_SAFE_INTEGER))[0] ?? null;
+    if (!head) {
       throw new Error('No achievement is awaiting verification.');
     }
 

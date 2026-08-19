@@ -117,7 +117,7 @@ function sanitizeSwitchGamePayload(value) {
 
 function sanitizeHumanizedPayload(value) {
   const source = assertPlainObject(value, 'Humanized schedule');
-  assertNoUnexpectedFields(source, new Set(['appId', 'achievements', 'orderMode', 'seed', 'startAt', 'timelineOptions']), 'Humanized schedule');
+  assertNoUnexpectedFields(source, new Set(['appId', 'achievements', 'orderMode', 'seed', 'startAt', 'timingPreset', 'timelineOptions']), 'Humanized schedule');
   const payload = {
     appId: assertAppId(source.appId),
     achievements: sanitizeAchievements(source.achievements),
@@ -125,14 +125,26 @@ function sanitizeHumanizedPayload(value) {
     seed: assertString(source.seed, 'Schedule reference', { maxLength: MAX_SEED_LENGTH }),
     startAt: assertFiniteNumber(source.startAt, 'Schedule start time', { min: 0, max: 8_640_000_000_000 }),
   };
+  if (source.timingPreset !== undefined) {
+    payload.timingPreset = assertString(source.timingPreset, 'Timing preset', { maxLength: 32 });
+  }
   if (source.timelineOptions !== undefined) {
     const options = assertPlainObject(source.timelineOptions, 'Timeline options');
-    assertNoUnexpectedFields(options, new Set(['minIntervalMs', 'maxIntervalMs', 'maxRetries']), 'Timeline options');
+    assertNoUnexpectedFields(options, new Set(['initialDelayMs', 'baseIntervalMs', 'varianceMs', 'minIntervalMs', 'maxIntervalMs', 'maxRetries']), 'Timeline options');
     payload.timelineOptions = {};
+    if (options.initialDelayMs !== undefined) payload.timelineOptions.initialDelayMs = assertFiniteNumber(options.initialDelayMs, 'Initial delay', { min: 0, max: 43_200_000, integer: true });
+    if (options.baseIntervalMs !== undefined && options.baseIntervalMs !== null) payload.timelineOptions.baseIntervalMs = assertFiniteNumber(options.baseIntervalMs, 'Base interval', { min: 60_000, max: 43_200_000, integer: true });
+    if (options.varianceMs !== undefined) payload.timelineOptions.varianceMs = assertFiniteNumber(options.varianceMs, 'Interval variance', { min: 0, max: 43_200_000, integer: true });
     if (options.minIntervalMs !== undefined) payload.timelineOptions.minIntervalMs = assertFiniteNumber(options.minIntervalMs, 'Minimum interval', { min: 1, max: 86_400_000, integer: true });
     if (options.maxIntervalMs !== undefined) payload.timelineOptions.maxIntervalMs = assertFiniteNumber(options.maxIntervalMs, 'Maximum interval', { min: 1, max: 86_400_000, integer: true });
     if (payload.timelineOptions.minIntervalMs !== undefined && payload.timelineOptions.maxIntervalMs !== undefined && payload.timelineOptions.minIntervalMs > payload.timelineOptions.maxIntervalMs) {
       throw new IpcValidationError('Minimum interval cannot exceed maximum interval.');
+    }
+    if (payload.timelineOptions.baseIntervalMs !== undefined && payload.timelineOptions.minIntervalMs !== undefined && payload.timelineOptions.baseIntervalMs < payload.timelineOptions.minIntervalMs) {
+      throw new IpcValidationError('Base interval cannot be below the minimum interval.');
+    }
+    if (payload.timelineOptions.baseIntervalMs !== undefined && payload.timelineOptions.maxIntervalMs !== undefined && payload.timelineOptions.baseIntervalMs > payload.timelineOptions.maxIntervalMs) {
+      throw new IpcValidationError('Base interval cannot exceed the maximum interval.');
     }
     if (options.maxRetries !== undefined) payload.timelineOptions.maxRetries = assertFiniteNumber(options.maxRetries, 'Maximum retries', { min: 0, max: 10, integer: true });
   }

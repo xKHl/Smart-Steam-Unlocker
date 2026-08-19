@@ -13,6 +13,14 @@ import {
   Trash2,
 } from 'lucide-react';
 import { itemStatusPresentation, verificationPresentation } from '../lib/humanizedVerificationPresentation.mjs';
+import {
+  DEFAULT_TIMING_PRESET,
+  HUMANIZED_TIMING_PRESETS,
+  durationLabel,
+  remainingLabel,
+  timingOptionsFromMinutes,
+  timingPresetById,
+} from '../lib/humanizedTimingPresets.mjs';
 
 const ORDER_OPTIONS = [
   { value: 'original', label: 'Original', description: 'Steam’s original achievement order' },
@@ -60,6 +68,8 @@ function scheduleStateMeta(state) {
 export default function HumanizedSchedulePanel({ selectedGame, achievements, selectedIds, orderMode, onOrderModeChange, onScheduleCreated }) {
   const [status, setStatus] = useState({ schedule: null, summary: null });
   const [seed, setSeed] = useState('humanized-schedule');
+  const [timingPreset, setTimingPreset] = useState(DEFAULT_TIMING_PRESET);
+  const [timing, setTiming] = useState(() => ({ ...timingPresetById(DEFAULT_TIMING_PRESET) }));
   const [error, setError] = useState('');
   const [isWorking, setIsWorking] = useState(false);
   const [showAllItems, setShowAllItems] = useState(false);
@@ -88,8 +98,9 @@ export default function HumanizedSchedulePanel({ selectedGame, achievements, sel
     [achievements, selectedIds],
   );
   const scheduleMatchesGame = !schedule || String(schedule.appId) === String(selectedGame?.appId);
-  const activeItem = schedule?.items?.find((item) => ['executing', 'verification-required'].includes(item.status));
+  const executingItem = schedule?.items?.find((item) => item.status === 'executing');
   const verificationItem = schedule?.items?.find((item) => item.status === 'verification-required');
+  const activeItem = executingItem || verificationItem;
   const nextItem = schedule?.items?.find((item) => ['scheduled', 'retry'].includes(item.status));
   const nextVerificationAt = verificationItem?.verificationMeta?.nextVerificationAt;
   const verificationReason = verificationItem?.verificationMeta?.reasonCode;
@@ -103,6 +114,11 @@ export default function HumanizedSchedulePanel({ selectedGame, achievements, sel
   const verificationDetail = verificationView?.detail || (verificationItem
     ? `Checking again shortly${verificationReason ? ` (${verificationReason.replaceAll('_', ' ').toLowerCase()})` : ''}.`
     : null);
+  const scheduleTiming = schedule?.timing;
+  const currentActivity = executingItem
+    ? 'Activating'
+    : verificationView?.title || (nextItem ? 'Waiting for scheduled time' : 'Waiting to begin');
+  const nextUnlockAt = nextItem?.nextAttemptAt || nextItem?.scheduledAt;
 
   async function invoke(action) {
     setIsWorking(true);
@@ -119,6 +135,16 @@ export default function HumanizedSchedulePanel({ selectedGame, achievements, sel
     }
   }
 
+  function applyTimingPreset(presetId) {
+    setTimingPreset(presetId);
+    if (presetId !== 'custom') setTiming({ ...timingPresetById(presetId) });
+  }
+
+  function updateTiming(field, value) {
+    setTimingPreset('custom');
+    setTiming((current) => ({ ...current, [field]: Number(value) }));
+  }
+
   function handleCreate() {
     if (!selectedGame || selectedAchievements.length === 0) return;
     invoke(async () => {
@@ -128,6 +154,8 @@ export default function HumanizedSchedulePanel({ selectedGame, achievements, sel
         orderMode,
         seed: seed.trim() || 'humanized-schedule',
         startAt: Date.now(),
+        timingPreset,
+        timelineOptions: timingOptionsFromMinutes(timing),
       });
       onScheduleCreated?.();
       return result;
@@ -182,6 +210,31 @@ export default function HumanizedSchedulePanel({ selectedGame, achievements, sel
             ))}
           </div>
 
+          <section className="humanized-timing-setup" aria-labelledby="humanized-timing-title">
+            <div className="humanized-setup-copy">
+              <div>
+                <h3 id="humanized-timing-title">Set the pace</h3>
+                <p>Timing is generated once, saved with the queue, and shown below before you start.</p>
+              </div>
+            </div>
+            <div className="humanized-timing-presets" role="radiogroup" aria-label="Humanized timing preset">
+              {HUMANIZED_TIMING_PRESETS.map((preset) => (
+                <button
+                  key={preset.id}
+                  type="button"
+                  className={`humanized-timing-preset${timingPreset === preset.id ? ' is-selected' : ''}`}
+                  onClick={() => applyTimingPreset(preset.id)}
+                  aria-pressed={timingPreset === preset.id}
+                  disabled={isWorking}
+                >
+                  <strong>{preset.label}</strong>
+                  <small>{preset.description}</small>
+                  <span>{preset.initialDelayMinutes}m start · {preset.baseIntervalMinutes}m ± {preset.varianceMinutes}m</span>
+                </button>
+              ))}
+            </div>
+          </section>
+
           <div className="humanized-create-row">
             <div className="humanized-create-summary">
               <span className="humanized-summary-icon"><CalendarClock size={16} /></span>
@@ -197,9 +250,26 @@ export default function HumanizedSchedulePanel({ selectedGame, achievements, sel
 
           <details className="humanized-advanced">
             <summary>Advanced schedule options <ChevronDown size={14} /></summary>
+            <div className="humanized-timing-input-grid">
+              <label htmlFor="humanized-initial-delay">Initial delay (minutes)
+                <input id="humanized-initial-delay" type="number" min="0" max="720" step="1" value={timing.initialDelayMinutes} onChange={(event) => updateTiming('initialDelayMinutes', event.target.value)} disabled={isWorking} />
+              </label>
+              <label htmlFor="humanized-base-interval">Base interval (minutes)
+                <input id="humanized-base-interval" type="number" min="1" max="720" step="1" value={timing.baseIntervalMinutes} onChange={(event) => updateTiming('baseIntervalMinutes', event.target.value)} disabled={isWorking} />
+              </label>
+              <label htmlFor="humanized-variance">Random variance (minutes)
+                <input id="humanized-variance" type="number" min="0" max="720" step="1" value={timing.varianceMinutes} onChange={(event) => updateTiming('varianceMinutes', event.target.value)} disabled={isWorking} />
+              </label>
+              <label htmlFor="humanized-min-interval">Safe minimum (minutes)
+                <input id="humanized-min-interval" type="number" min="1" max="720" step="1" value={timing.minIntervalMinutes} onChange={(event) => updateTiming('minIntervalMinutes', event.target.value)} disabled={isWorking} />
+              </label>
+              <label htmlFor="humanized-max-interval">Safe maximum (minutes)
+                <input id="humanized-max-interval" type="number" min="1" max="720" step="1" value={timing.maxIntervalMinutes} onChange={(event) => updateTiming('maxIntervalMinutes', event.target.value)} disabled={isWorking} />
+              </label>
+            </div>
             <label htmlFor="humanized-seed">Schedule reference</label>
             <input id="humanized-seed" className="search-input humanized-seed-input" value={seed} onChange={(event) => setSeed(event.target.value)} disabled={isWorking} />
-            <p>Use the same reference to recreate the same timing pattern for a new schedule.</p>
+            <p>Use the same reference to recreate the same timing pattern for a new schedule. Timing is a product preference, not a guarantee of human behavior.</p>
           </details>
         </div>
       ) : (
@@ -218,13 +288,22 @@ export default function HumanizedSchedulePanel({ selectedGame, achievements, sel
             <div className="humanized-progress-context">
               <div>
                 <span>Current</span>
-                <strong>{activeItem?.name || activeItem?.id || 'Waiting to begin'}</strong>
+                <strong>{activeItem?.name || activeItem?.id || currentActivity}</strong>
               </div>
               <div>
                 <span>Next</span>
                 <strong>{nextItem?.name || nextItem?.id || 'No upcoming achievement'}</strong>
               </div>
             </div>
+            <div className="humanized-live-progress" aria-live="polite">
+              <span>{currentActivity}</span>
+              <strong>{nextItem ? `Next unlock ${remainingLabel(nextUnlockAt)}` : (verificationItem ? verificationDetail : 'No upcoming achievement')}</strong>
+            </div>
+            {scheduleTiming && (
+              <p className="humanized-timing-summary">
+                {scheduleTiming.preset ? `${scheduleTiming.preset[0].toUpperCase()}${scheduleTiming.preset.slice(1)} pace` : 'Custom pace'} · {durationLabel(scheduleTiming.initialDelayMs)} initial delay · {durationLabel(scheduleTiming.baseIntervalMs)} ± {durationLabel(scheduleTiming.varianceMs)}
+              </p>
+            )}
           </div>
 
           <div className="humanized-schedule-toolbar">
@@ -270,7 +349,7 @@ export default function HumanizedSchedulePanel({ selectedGame, achievements, sel
                     <div className="humanized-timeline-title-row">
                       <h4>{item.name || item.id}</h4>
                       <time dateTime={Number.isFinite(item.verificationMeta?.nextVerificationAt || item.nextAttemptAt || item.scheduledAt) ? new Date(item.verificationMeta?.nextVerificationAt || item.nextAttemptAt || item.scheduledAt).toISOString() : undefined}>
-                        <Clock3 size={13} /> {item.status === 'verification-required' ? `Recheck ${formatDate(item.verificationMeta?.nextVerificationAt)}` : formatDate(item.nextAttemptAt || item.scheduledAt)}
+                        <Clock3 size={13} /> {item.status === 'verification-required' ? (item.verificationMeta?.exhausted ? 'Pending confirmation' : `Confirming ${remainingLabel(item.verificationMeta?.nextVerificationAt)}`) : `Scheduled ${remainingLabel(item.nextAttemptAt || item.scheduledAt)}`}
                       </time>
                     </div>
                     <div className="humanized-timeline-meta">
