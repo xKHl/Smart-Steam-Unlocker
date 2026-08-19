@@ -95,6 +95,8 @@ contextBridge.exposeInMainWorld('steamAPI', {
   app: {
     getVersion:     () => ipcRenderer.invoke('app:get-version'),
     getInitialState: () => ipcRenderer.invoke('app:get-initial-state'),
+    getDiagnosticsStatus: () => ipcRenderer.invoke('app:get-diagnostics-status'),
+    traceInteraction: (payload) => ipcRenderer.invoke('app:trace-interaction', payload),
     openExternal:   (url) => ipcRenderer.invoke('app:open-external', url),
     onInitialState: (cb) => {
       const listener = (_e, state) => cb(state);

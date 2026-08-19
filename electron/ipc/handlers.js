@@ -21,6 +21,8 @@ const {
   sanitizeTimerPayload,
   sanitizeUnlockPayload,
 } = require('./validation');
+const runtimeDiagnostics = require('../runtimeDiagnostics');
+const { traceHandler } = runtimeDiagnostics;
 
 // In-memory cache for the owned-games response (valid 5 minutes)
 let _libraryCache     = null;
@@ -48,6 +50,10 @@ function assertGameSwitchAllowed(appId) {
 
 // ─────────────────────────────────────────────────────────────────────────────
 
+function registerHandler(channel, handler) {
+  ipcMain.handle(channel, traceHandler(channel, handler));
+}
+
 function registerIpcHandlers() {
 
   // ─── Window Controls ─────────────────────────────────────────────────────
@@ -58,7 +64,7 @@ function registerIpcHandlers() {
   });
   ipcMain.on('window:close',    () => BrowserWindow.getFocusedWindow()?.close());
 
-  ipcMain.handle('window:is-maximized', () =>
+  registerHandler('window:is-maximized', () =>
     BrowserWindow.getFocusedWindow()?.isMaximized() ?? false
   );
 
@@ -68,10 +74,10 @@ function registerIpcHandlers() {
   });
 
   // ─── Steam: Status ────────────────────────────────────────────────────────
-  ipcMain.handle('steam:get-status', () => steamManager.getStatus());
+  registerHandler('steam:get-status', () => steamManager.getStatus());
 
   // ─── Steam: Manual Reconnect ──────────────────────────────────────────────
-  ipcMain.handle('steam:reconnect', async () => {
+  registerHandler('steam:reconnect', async () => {
     // console.log('[IPC] steam:reconnect → User triggered manual reconnect');
     const success = await steamManager.initSteam();
     const status = steamManager.getStatus();
@@ -89,7 +95,7 @@ function registerIpcHandlers() {
    *   'INVALID_API_KEY'     — 401/403 from Steam
    *   'PRIVATE_PROFILE'     — profile privacy settings block the request
    */
-  ipcMain.handle('steam:get-owned-games', async (_e, options) => {
+  registerHandler('steam:get-owned-games', async (_e, options) => {
     const { forceRefresh } = sanitizeOwnedGamesOptions(options);
     // Serve from cache unless stale or forced
     if (!forceRefresh && _libraryCache && Date.now() - _libraryCacheTime < CACHE_TTL_MS) {
@@ -133,7 +139,7 @@ function registerIpcHandlers() {
 
 
   // ─── Steam: Switch Game ───────────────────────────────────────────────────
-  ipcMain.handle('steam:switch-game', async (_event, payload) => {
+  registerHandler('steam:switch-game', async (_event, payload) => {
     const { appId, name, headerImage } = sanitizeSwitchGamePayload(payload);
     assertGameSwitchAllowed(appId);
     // console.log(`[IPC] steam:switch-game → AppID: ${appId} (${name})`);
@@ -144,7 +150,7 @@ function registerIpcHandlers() {
   });
 
   // ─── Steam: Achievements ──────────────────────────────────────────────────
-  ipcMain.handle('steam:get-achievements', async (_e, rawAppId) => {
+  registerHandler('steam:get-achievements', async (_e, rawAppId) => {
     const appId = assertAppId(rawAppId);
     let apiKey;
     try {
@@ -161,54 +167,66 @@ function registerIpcHandlers() {
     
     return await steamManager.getAchievements(appId, apiKey, status.steamId);
   });
-  ipcMain.handle('steam:get-global-achievement-percentages', (_e, rawAppId) => steamManager.getGlobalAchievementPercentages(assertAppId(rawAppId)));
-  ipcMain.handle('steam:unlock-achievement', (_e, payload) => {
+  registerHandler('steam:get-global-achievement-percentages', (_e, rawAppId) => steamManager.getGlobalAchievementPercentages(assertAppId(rawAppId)));
+  registerHandler('steam:unlock-achievement', (_e, payload) => {
     const { appId, achievementId } = sanitizeUnlockPayload(payload);
     return steamManager.unlockAchievement(achievementId, appId);
   });
 
   // ─── Legacy Timer (existing instant behavior) ─────────────────────────────
   const timerService = require('../timerService');
-  ipcMain.handle('timer:start-queue', (_e, payload) => {
+  registerHandler('timer:start-queue', (_e, payload) => {
     const { achievements, base, variance, fixedMins } = sanitizeTimerPayload(payload);
     return timerService.startQueue(achievements, base, variance, fixedMins);
   });
-  ipcMain.handle('timer:stop-queue',  () => timerService.stopQueue());
-  ipcMain.handle('timer:clear-queue', () => timerService.clearQueue());
-  ipcMain.handle('timer:get-status',  () => timerService.getStatus());
+  registerHandler('timer:stop-queue',  () => timerService.stopQueue());
+  registerHandler('timer:clear-queue', () => timerService.clearQueue());
+  registerHandler('timer:get-status',  () => timerService.getStatus());
 
   // ─── Humanized Scheduler ─────────────────────────────────────────────────
-  ipcMain.handle('humanized:get-status', () => humanizedService.getStatus());
+  registerHandler('humanized:get-status', () => humanizedService.getStatus());
   // Renderer display ordering deliberately delegates to the same canonical
   // normalization and ordering implementation used by schedule generation.
-  ipcMain.handle('humanized:order-achievements', (_e, payload) => {
+  registerHandler('humanized:order-achievements', (_e, payload) => {
     const { achievements, orderMode } = sanitizeOrderingPayload(payload);
     return orderAchievements(achievements, orderMode);
   });
-  ipcMain.handle('humanized:create', (_e, payload) => humanizedService.create(sanitizeHumanizedPayload(payload)));
-  ipcMain.handle('humanized:replace', (_e, payload) => humanizedService.replace(sanitizeHumanizedPayload(payload)));
-  ipcMain.handle('humanized:start', () => humanizedService.start());
-  ipcMain.handle('humanized:pause', () => humanizedService.pause());
-  ipcMain.handle('humanized:recheck-now', () => humanizedService.recheckNow());
-  ipcMain.handle('humanized:clear', () => humanizedService.clear());
+  registerHandler('humanized:create', (_e, payload) => humanizedService.create(sanitizeHumanizedPayload(payload)));
+  registerHandler('humanized:replace', (_e, payload) => humanizedService.replace(sanitizeHumanizedPayload(payload)));
+  registerHandler('humanized:start', () => humanizedService.start());
+  registerHandler('humanized:pause', () => humanizedService.pause());
+  registerHandler('humanized:recheck-now', () => humanizedService.recheckNow());
+  registerHandler('humanized:clear', () => humanizedService.clear());
 
   // ─── Credential settings (status only; plaintext never crosses IPC) ───────
-  ipcMain.handle('credentials:get-status', () => credentialStore.getStatus());
-  ipcMain.handle('credentials:save-steam-api-key', (_e, value) => {
+  registerHandler('credentials:get-status', () => credentialStore.getStatus());
+  registerHandler('credentials:save-steam-api-key', (_e, value) => {
     const status = credentialStore.saveApiKey(value);
     invalidateLibraryCache();
     return status;
   });
-  ipcMain.handle('credentials:clear-steam-api-key', () => {
+  registerHandler('credentials:clear-steam-api-key', () => {
     const status = credentialStore.clearApiKey();
     invalidateLibraryCache();
     return status;
   });
 
   // ─── App Info ─────────────────────────────────────────────────────────────
-  ipcMain.handle('app:get-version', () => app.getVersion());
-  ipcMain.handle('app:get-initial-state', () => ({ selectedGame: settingsStore.get('selectedGame') }));
-  ipcMain.handle('app:open-external', async (_e, url) => {
+  registerHandler('app:get-version', () => app.getVersion());
+  registerHandler('app:get-initial-state', () => ({ selectedGame: settingsStore.get('selectedGame') }));
+  registerHandler('app:get-diagnostics-status', () => runtimeDiagnostics.getStatus());
+  registerHandler('app:trace-interaction', (_event, payload = {}) => {
+    runtimeDiagnostics.trace('renderer', 'interaction', {
+      eventType: typeof payload.eventType === 'string' ? payload.eventType.slice(0, 32) : 'unknown',
+      route: typeof payload.route === 'string' ? payload.route.slice(0, 240) : null,
+      targetId: typeof payload.targetId === 'string' ? payload.targetId.slice(0, 120) : null,
+      targetTag: typeof payload.targetTag === 'string' ? payload.targetTag.slice(0, 24) : null,
+      targetClass: typeof payload.targetClass === 'string' ? payload.targetClass.slice(0, 160) : null,
+      trusted: payload.trusted === true,
+    });
+    return true;
+  });
+  registerHandler('app:open-external', async (_e, url) => {
     if (!TRUSTED_EXTERNAL_URLS.has(url)) throw new Error('This external link is not permitted.');
     await shell.openExternal(url);
     return true;

@@ -16,6 +16,7 @@ const path = require('path');
 const settingsStore = require('./settingsStore');
 const credentialStore = require('./credentialStore');
 const { createSteamApiClient, STEAM_READ_ERROR } = require('./steamApiClient');
+const runtimeDiagnostics = require('./runtimeDiagnostics');
 const { app, BrowserWindow } = require('electron');
 
 const steamApiClient = createSteamApiClient();
@@ -161,7 +162,9 @@ async function switchGame(appId) {
 async function initSteam(forceAppId = null) {
   // Use the provided AppID, or 480 (Spacewar) for the boot-time handshake.
   const appId = Number(forceAppId || 480);
+  runtimeDiagnostics.trace('steam', 'init-start', { appId, forceAppId: Boolean(forceAppId) });
   prepareSteamRuntimeContext(appId);
+  runtimeDiagnostics.trace('steam', 'runtime-context-ready', { appId });
   currentAppId = appId;
 
   try {
@@ -169,7 +172,9 @@ async function initSteam(forceAppId = null) {
     shutdown();
     
     const steamworks = require('steamworks.js');
+    runtimeDiagnostics.trace('steam', 'native-init-start', { appId });
     client = steamworks.init(appId);
+    runtimeDiagnostics.trace('steam', 'native-init-end', { appId });
     initialized = true;
     
     // Cache player data so it survives the handshake shutdown
@@ -188,8 +193,10 @@ async function initSteam(forceAppId = null) {
       currentAppId = null;
     }
     
+    runtimeDiagnostics.trace('steam', 'init-end', { appId, outcome: 'success' });
     return true;
   } catch (err) {
+    runtimeDiagnostics.trace('steam', 'init-end', { appId, outcome: 'error', error: err instanceof Error ? err.message : String(err) });
     steamIsAvailable = false;
     initialized = false;
     client = null;
@@ -211,6 +218,7 @@ function shutdown() {
   if (!initialized && !client) return;
 
   const clientRef = client;
+  runtimeDiagnostics.trace('steam', 'shutdown-start');
 
   // Immediately null out module state so no other call can race against us
   client      = null;
@@ -223,8 +231,10 @@ function shutdown() {
     if (typeof clientRef.shutdown === 'function') {
       clientRef.shutdown();
     }
+    runtimeDiagnostics.trace('steam', 'shutdown-end', { outcome: 'success' });
     // console.log('[SteamManager] ✓ Steamworks client shut down cleanly.');
   } catch (err) {
+    runtimeDiagnostics.trace('steam', 'shutdown-end', { outcome: 'error', error: err instanceof Error ? err.message : String(err) });
     // Native threw — already nulled, just log
     // console.warn('[SteamManager] shutdown() threw (already cleaned up):', err.message);
   }

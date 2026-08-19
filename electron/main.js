@@ -3,6 +3,7 @@ const path = require('path');
 const { registerIpcHandlers } = require('./ipc/handlers');
 const { initSteam, shutdown } = require('./steamManager');
 const settingsStore = require('./settingsStore');
+const runtimeDiagnostics = require('./runtimeDiagnostics');
 
 const isDev = process.env.NODE_ENV === 'development';
 
@@ -10,13 +11,16 @@ let mainWindow = null;
 const hasSingleInstanceLock = app.requestSingleInstanceLock();
 
 if (hasSingleInstanceLock) {
+  runtimeDiagnostics.trace('main', 'single-instance-acquired');
   app.on('second-instance', () => {
+    runtimeDiagnostics.trace('main', 'second-instance');
     if (!mainWindow) return;
     if (mainWindow.isMinimized()) mainWindow.restore();
     mainWindow.show();
     mainWindow.focus();
   });
 } else {
+  runtimeDiagnostics.trace('main', 'single-instance-denied');
   // A primary process already owns the scheduler/operation leases.
   app.quit();
 }
@@ -26,6 +30,7 @@ if (hasSingleInstanceLock) {
 // ─────────────────────────────────────────────────────────────────────────────
 
 async function createWindow() {
+  runtimeDiagnostics.trace('main', 'window-create-start');
   mainWindow = new BrowserWindow({
     width: 1200,
     height: 750,
@@ -80,6 +85,11 @@ async function createWindow() {
     });
   }
 
+  mainWindow.webContents.on('did-finish-load', () => runtimeDiagnostics.trace('renderer', 'did-finish-load'));
+  mainWindow.webContents.on('render-process-gone', (_event, details) => runtimeDiagnostics.trace('renderer', 'process-gone', details));
+  mainWindow.webContents.on('unresponsive', () => runtimeDiagnostics.trace('renderer', 'unresponsive'));
+  mainWindow.webContents.on('responsive', () => runtimeDiagnostics.trace('renderer', 'responsive'));
+
   // ── Load the renderer ────────────────────────────────────────────────────
   if (isDev) {
     await mainWindow.loadURL('http://localhost:5173');
@@ -127,6 +137,7 @@ app.whenReady().then(async () => {
 
   // ③ Open the main window
   await createWindow();
+  runtimeDiagnostics.trace('main', 'startup-complete', runtimeDiagnostics.getStatus());
 
   // macOS: re-open window when dock icon is clicked
   app.on('activate', () => {

@@ -1,5 +1,5 @@
-import React, { useState, useEffect, useCallback } from 'react';
-import { HashRouter as Router, Routes, Route, useNavigate } from 'react-router-dom';
+import React, { useState, useEffect, useCallback, useRef } from 'react';
+import { HashRouter as Router, Routes, Route, useLocation, useNavigate } from 'react-router-dom';
 import Header       from './components/Header';
 import Sidebar      from './components/Sidebar';
 import StatusBar    from './components/StatusBar';
@@ -38,11 +38,52 @@ function SwitchingOverlay({ game }) {
 
 function AppContent() {
   const navigate = useNavigate();
+  const location = useLocation();
+  const diagnosticsEnabled = useRef(false);
 
   const [steamStatus,  setSteamStatus]  = useState({ connected: false, playerName: null, steamId: null });
   const [selectedGame, setSelectedGame] = useState(null);
   const [isSwitching,  setIsSwitching]  = useState(false);
   const [appVersion,   setAppVersion]   = useState('');
+
+  // ── Opt-in interaction diagnostics ─────────────────────────────────────
+  useEffect(() => {
+    let active = true;
+    window.steamAPI?.app.getDiagnosticsStatus().then((status) => {
+      if (!active || !status?.enabled) return;
+      diagnosticsEnabled.current = true;
+      window.steamAPI?.app.traceInteraction({ eventType: 'renderer-ready', route: location.pathname, trusted: true }).catch(() => {});
+    }).catch(() => {});
+    return () => { active = false; };
+  }, []);
+
+  useEffect(() => {
+    if (!diagnosticsEnabled.current) return;
+    window.steamAPI?.app.traceInteraction({ eventType: 'route-change', route: location.pathname, trusted: true }).catch(() => {});
+  }, [location.pathname]);
+
+  useEffect(() => {
+    const captureInteraction = (event) => {
+      if (!diagnosticsEnabled.current) return;
+      const target = event.target instanceof Element
+        ? (event.target.closest('a,button,input,select,textarea,[role="button"]') || event.target)
+        : null;
+      window.steamAPI?.app.traceInteraction({
+        eventType: event.type,
+        route: location.pathname,
+        targetId: target?.id || null,
+        targetTag: target?.tagName || null,
+        targetClass: typeof target?.className === 'string' ? target.className : null,
+        trusted: event.isTrusted,
+      }).catch(() => {});
+    };
+    document.addEventListener('pointerdown', captureInteraction, true);
+    document.addEventListener('click', captureInteraction, true);
+    return () => {
+      document.removeEventListener('pointerdown', captureInteraction, true);
+      document.removeEventListener('click', captureInteraction, true);
+    };
+  }, [location.pathname]);
 
   // ── Steam Status Polling ────────────────────────────────────────────────
   const refreshStatus = useCallback(async () => {
