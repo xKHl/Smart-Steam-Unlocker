@@ -532,7 +532,7 @@ function createScheduler({ executor, verifier, persist = () => true, now = () =>
         item.verification = VERIFICATION.UNVERIFIED;
         item.verificationMeta = { ...metadata, nextVerificationAt: null, exhausted: true, autoContinue: false, reasonCode: 'CONFIRMED_NOT_UNLOCKED_HORIZON' };
         next.state = SCHEDULE_STATE.PAUSED;
-        item.lastError = 'Steam repeatedly reported this achievement as locked after the verification window. A controlled retry is ready when resumed.';
+        item.lastError = 'Steam confirmation is still pending. No duplicate unlock was attempted.';
       } else {
         item.status = ITEM_STATUS.VERIFICATION_REQUIRED;
         item.verification = VERIFICATION.PENDING;
@@ -544,7 +544,7 @@ function createScheduler({ executor, verifier, persist = () => true, now = () =>
           reasonCode: 'CONFIRMED_NOT_UNLOCKED_WAITING',
         };
         next.state = SCHEDULE_STATE.RUNNING;
-        item.lastError = 'Steam has not yet reported the unlock. Verification will continue before any retry.';
+        item.lastError = 'Waiting for Steam confirmation.';
       }
     } else if (verificationResult.verification === VERIFICATION.UNCERTAIN) {
       if (verifiedAt >= metadata.horizonAt) {
@@ -564,7 +564,7 @@ function createScheduler({ executor, verifier, persist = () => true, now = () =>
           reasonCode: verificationResult.errorCode || 'VERIFICATION_UNCERTAIN',
         };
         next.state = SCHEDULE_STATE.RUNNING;
-        item.lastError = verificationResult.error || 'Steam verification is temporarily unavailable. The app will recheck safely.';
+        item.lastError = verificationResult.error || 'Checking with Steam again shortly.';
       }
     } else {
       // Context/authentication/schema failures are not authorization to retry an

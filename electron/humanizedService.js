@@ -18,6 +18,7 @@ let engine = null;
 let tickTimer = null;
 let serviceFault = null;
 let leasedOwnerId = null;
+let manualRecheckInFlight = false;
 const executionAdapter = createRealSteamExecutionAdapter({ steamManager });
 const verificationAdapter = createRealSteamVerificationAdapter({ steamManager });
 
@@ -192,10 +193,18 @@ async function pause() {
 }
 
 async function recheckNow() {
-  await ensureEngine().recheckNow();
-  serviceFault = null;
-  ensureTickLoop();
-  return getStatus();
+  if (manualRecheckInFlight || ensureEngine().isProcessing()) {
+    throw new SchedulerBusyError('Steam confirmation is already being checked.');
+  }
+  manualRecheckInFlight = true;
+  try {
+    await ensureEngine().recheckNow();
+    serviceFault = null;
+    ensureTickLoop();
+    return getStatus();
+  } finally {
+    manualRecheckInFlight = false;
+  }
 }
 
 async function clear() {

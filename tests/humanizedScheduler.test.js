@@ -607,3 +607,48 @@ test('only repeated confirmed non-completion through the verification horizon pe
   assert.equal(current.items[0].verificationMeta.confirmedNotUnlockedCount, 2);
   assert.equal(executor.getCalls().length, 1);
 });
+
+test('concurrent manual rechecks do not create concurrent verifier or executor calls', async () => {
+  let now = 90_000;
+  let resolveVerification;
+  let verifierCalls = 0;
+  const verificationGate = new Promise((resolve) => { resolveVerification = resolve; });
+  const executor = createMockExecutionAdapter({ outcomes: { A: ['success'] } });
+  const verifier = {
+    async verify() {
+      verifierCalls += 1;
+      await verificationGate;
+      return { verification: VERIFICATION.VERIFIED };
+    },
+  };
+  const scheduler = createTestScheduler({ executor, verifier, now: () => now });
+  const schedule = makeSchedule(now);
+  const item = schedule.items[0];
+  item.status = ITEM_STATUS.VERIFICATION_REQUIRED;
+  item.verification = VERIFICATION.PENDING;
+  item.verificationMeta = {
+    attemptCount: 0,
+    confirmedNotUnlockedCount: 0,
+    firstVerificationAt: now,
+    lastVerificationAt: null,
+    nextVerificationAt: now,
+    horizonAt: now + 60_000,
+    reasonCode: 'POST_ACTIVATION_CONFIRMATION',
+    exhausted: false,
+    autoContinue: true,
+  };
+  schedule.state = SCHEDULE_STATE.RUNNING;
+  await scheduler.setSchedule(schedule);
+
+  const firstRecheck = scheduler.recheckNow();
+  await waitFor(() => scheduler.isProcessing());
+  await assert.rejects(() => scheduler.recheckNow(), SchedulerBusyError);
+  assert.equal(verifierCalls, 1);
+  assert.equal(executor.getCalls().length, 0);
+
+  resolveVerification();
+  await firstRecheck;
+  assert.equal(scheduler.getSchedule().items[0].status, ITEM_STATUS.COMPLETED);
+  assert.equal(verifierCalls, 1);
+  assert.equal(executor.getCalls().length, 0);
+});

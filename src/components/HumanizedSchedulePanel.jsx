@@ -12,6 +12,7 @@ import {
   Sparkles,
   Trash2,
 } from 'lucide-react';
+import { itemStatusPresentation, verificationPresentation } from '../lib/humanizedVerificationPresentation.mjs';
 
 const ORDER_OPTIONS = [
   { value: 'original', label: 'Original', description: 'Steam’s original achievement order' },
@@ -49,7 +50,7 @@ function formatRarity(value) {
 }
 
 function itemStatusMeta(status) {
-  return ITEM_STATUS[status] || { label: 'Waiting', tone: 'neutral' };
+  return itemStatusPresentation(status) || ITEM_STATUS[status] || { label: 'Waiting', tone: 'neutral' };
 }
 
 function scheduleStateMeta(state) {
@@ -92,17 +93,16 @@ export default function HumanizedSchedulePanel({ selectedGame, achievements, sel
   const nextItem = schedule?.items?.find((item) => ['scheduled', 'retry'].includes(item.status));
   const nextVerificationAt = verificationItem?.verificationMeta?.nextVerificationAt;
   const verificationReason = verificationItem?.verificationMeta?.reasonCode;
+  const verificationView = verificationPresentation(verificationItem, schedule?.state);
   const completedPercent = summary?.total ? Math.round((summary.completed / summary.total) * 100) : 0;
   const runtimeError = status.runtime?.error?.message || '';
-  const itemError = schedule?.items?.find((item) => item.lastError)?.lastError || '';
+  const itemError = schedule?.items?.find((item) => item.lastError && item.status !== 'verification-required')?.lastError || '';
   const scheduleMeta = scheduleStateMeta(schedule?.state);
   const visibleItems = showAllItems ? (schedule?.items || []) : (schedule?.items || []).slice(0, 6);
   const currentOrder = ORDER_OPTIONS.find((option) => option.value === orderMode) || ORDER_OPTIONS[0];
-  const verificationDetail = verificationItem
-    ? (verificationItem.verificationMeta?.exhausted
-      ? `Verification needs attention${verificationReason ? ` (${verificationReason.replaceAll('_', ' ').toLowerCase()})` : ''}.`
-      : `Verification attempt ${verificationItem.verificationMeta?.attemptCount ?? 0}; next check ${formatDate(nextVerificationAt)}.`)
-    : null;
+  const verificationDetail = verificationView?.detail || (verificationItem
+    ? `Checking again shortly${verificationReason ? ` (${verificationReason.replaceAll('_', ' ').toLowerCase()})` : ''}.`
+    : null);
 
   async function invoke(action) {
     setIsWorking(true);
@@ -234,7 +234,15 @@ export default function HumanizedSchedulePanel({ selectedGame, achievements, sel
             </div>
             <div className="humanized-actions">
               {verificationItem && (
-                <button className="btn-secondary" onClick={() => invoke(() => window.steamAPI.humanized.recheckNow())} disabled={isWorking}><RefreshCw size={14} /> Recheck now</button>
+                <button
+                  className="btn-secondary humanized-recheck-action"
+                  onClick={() => invoke(() => window.steamAPI.humanized.recheckNow())}
+                  disabled={isWorking || verificationView?.recheckDisabled}
+                  title={verificationView?.recheckDisabled ? 'Steam confirmation is already being checked automatically.' : 'Run one safe verification check without activating again.'}
+                >
+                  <RefreshCw size={14} className={isWorking ? 'is-spinning' : ''} />
+                  {isWorking ? 'Checking...' : 'Recheck now'}
+                </button>
               )}
               {schedule.state === 'running' ? (
                 <button className="btn-secondary" onClick={() => invoke(() => window.steamAPI.humanized.pause())} disabled={isWorking}><Pause size={14} /> Pause</button>
@@ -244,6 +252,13 @@ export default function HumanizedSchedulePanel({ selectedGame, achievements, sel
               <button className="btn-danger humanized-clear-action" onClick={() => invoke(() => window.steamAPI.humanized.clear())} disabled={isWorking}><Trash2 size={14} /> Clear</button>
             </div>
           </div>
+
+          {verificationView && (
+            <div className={`humanized-message humanized-message-${verificationView.tone}`} role={verificationView.tone === 'danger' ? 'alert' : 'status'}>
+              <RefreshCw size={17} className={verificationView.tone === 'progress' ? 'is-spinning' : ''} />
+              <span><strong>{verificationView.title}</strong> {verificationView.body}</span>
+            </div>
+          )}
 
           <div className="humanized-timeline" aria-label="Humanized schedule queue">
             {visibleItems.map((item) => {
@@ -263,7 +278,8 @@ export default function HumanizedSchedulePanel({ selectedGame, achievements, sel
                       <span className={`humanized-item-status is-${itemMeta.tone}`}>{itemMeta.label}</span>
                       {item.attempts > 0 && <span>{item.attempts} attempt{item.attempts === 1 ? '' : 's'}</span>}
                     </div>
-                    {item.lastError && <p className="humanized-item-error">{item.lastError}</p>}
+                                          {item.lastError && item.status !== 'verification-required' && <p className="humanized-item-error">{item.lastError}</p>}
+
                   </div>
                 </article>
               );
