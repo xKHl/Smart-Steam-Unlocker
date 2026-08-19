@@ -125,6 +125,9 @@ async function createWindow() {
 
 app.whenReady().then(async () => {
   if (!hasSingleInstanceLock) return;
+  runtimeDiagnostics.initialize();
+  runtimeDiagnostics.trace('main', 'diagnostics-ready', runtimeDiagnostics.getStatus());
+
   // ① Wire up all IPC channels before creating any window
   registerIpcHandlers();
 

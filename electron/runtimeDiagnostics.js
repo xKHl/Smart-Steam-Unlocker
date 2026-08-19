@@ -2,18 +2,26 @@ const fs = require('fs');
 const path = require('path');
 
 const MAX_LOG_BYTES = 512 * 1024;
-const enabled = process.env.SSU_DIAGNOSTICS === '1' || process.argv.includes('--ssu-diagnostics');
+const ENABLE_FLAGS = new Set(['--ssu-diagnostics', '--enable-diagnostics']);
+const enabled = process.env.SSU_DIAGNOSTICS === '1'
+  || process.env.SSU_DIAGNOSTICS === 'true'
+  || process.argv.some((argument) => ENABLE_FLAGS.has(argument));
 let logPath = null;
+let statusPath = null;
+let lastWriteError = null;
+let initialized = false;
 
-function getLogPath() {
-  if (!enabled) return null;
-  if (!logPath) {
+function getPaths() {
+  if (!enabled) return { logPath: null, statusPath: null };
+  if (!logPath || !statusPath) {
     // Keep pure scheduler/adapter tests Electron-free. Electron is required only
     // for an explicitly enabled desktop diagnostic run.
     const { app } = require('electron');
-    logPath = path.join(app.getPath('userData'), 'runtime-diagnostics.jsonl');
+    const userDataPath = app.getPath('userData');
+    logPath = path.join(userDataPath, 'runtime-diagnostics.jsonl');
+    statusPath = path.join(userDataPath, 'runtime-diagnostics-status.json');
   }
-  return logPath;
+  return { logPath, statusPath };
 }
 
 function scrub(value, depth = 0) {
@@ -31,23 +39,68 @@ function scrub(value, depth = 0) {
   return String(value).slice(0, 240);
 }
 
+function statusPayload() {
+  return {
+    enabled,
+    initialized,
+    eventLog: logPath,
+    statusFile: statusPath,
+    lastWriteError,
+    updatedAt: new Date().toISOString(),
+  };
+}
+
+function reportWriteFailure(error) {
+  lastWriteError = error instanceof Error ? error.message : String(error);
+  // This is intentionally visible in the Electron/terminal stderr stream. It is
+  // the only fallback when the user-data directory itself cannot be written.
+  console.error(`[SSU diagnostics] write failed: ${lastWriteError}`);
+}
+
+function writeStatus() {
+  if (!enabled) return;
+  try {
+    const paths = getPaths();
+    fs.mkdirSync(path.dirname(paths.logPath), { recursive: true, mode: 0o700 });
+    fs.writeFileSync(paths.statusPath, `${JSON.stringify(statusPayload(), null, 2)}\n`, { encoding: 'utf8', mode: 0o600 });
+  } catch (error) {
+    reportWriteFailure(error);
+  }
+}
+
+function initialize() {
+  if (!enabled || initialized) return getStatus();
+  try {
+    const paths = getPaths();
+    fs.mkdirSync(path.dirname(paths.logPath), { recursive: true, mode: 0o700 });
+    fs.appendFileSync(paths.logPath, '', { encoding: 'utf8', mode: 0o600 });
+    initialized = true;
+    writeStatus();
+  } catch (error) {
+    reportWriteFailure(error);
+  }
+  return getStatus();
+}
+
 function trace(component, event, details = {}) {
   if (!enabled) return;
   try {
-    const target = getLogPath();
-    if (fs.existsSync(target) && fs.statSync(target).size > MAX_LOG_BYTES) {
-      fs.renameSync(target, `${target}.${Date.now()}.previous`);
+    if (!initialized) initialize();
+    const paths = getPaths();
+    if (fs.existsSync(paths.logPath) && fs.statSync(paths.logPath).size > MAX_LOG_BYTES) {
+      fs.renameSync(paths.logPath, `${paths.logPath}.${Date.now()}.previous`);
     }
-    fs.mkdirSync(path.dirname(target), { recursive: true, mode: 0o700 });
-    fs.appendFileSync(target, `${JSON.stringify({
+    fs.appendFileSync(paths.logPath, `${JSON.stringify({
       timestamp: new Date().toISOString(),
       pid: process.pid,
       component,
       event,
       details: scrub(details),
     })}\n`, { encoding: 'utf8', mode: 0o600 });
-  } catch {
-    // Diagnostics must never change application control flow.
+    lastWriteError = null;
+    writeStatus();
+  } catch (error) {
+    reportWriteFailure(error);
   }
 }
 
@@ -72,8 +125,20 @@ function traceHandler(channel, handler) {
   };
 }
 
+function getStatus() {
+  if (!enabled) return { enabled: false, initialized: false, logPath: null, statusPath: null, lastWriteError: null };
+  try {
+    const paths = getPaths();
+    return { enabled: true, initialized, logPath: paths.logPath, statusPath: paths.statusPath, lastWriteError };
+  } catch (error) {
+    reportWriteFailure(error);
+    return { enabled: true, initialized: false, logPath: null, statusPath: null, lastWriteError };
+  }
+}
+
 module.exports = {
-  getStatus: () => ({ enabled, logPath: enabled ? getLogPath() : null }),
+  getStatus,
+  initialize,
   isEnabled: () => enabled,
   trace,
   traceHandler,

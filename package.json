@@ -6,7 +6,9 @@
   "main": "electron/main.js",
   "scripts": {
     "dev": "concurrently -k -n \"VITE,ELECTRON\" -c \"cyan.bold,yellow.bold\" \"vite\" \"npm run electron:dev\"",
+    "dev:diagnostics": "concurrently -k -n \"VITE,ELECTRON\" -c \"cyan.bold,yellow.bold\" \"vite\" \"npm run electron:dev:diagnostics\"",
     "electron:dev": "wait-on http://localhost:5173 && cross-env NODE_ENV=development electron .",
+    "electron:dev:diagnostics": "wait-on http://localhost:5173 && cross-env NODE_ENV=development SSU_DIAGNOSTICS=1 electron . --enable-diagnostics",
     "build:renderer": "vite build",
     "build": "npm run build:renderer && electron-builder",
     "preview": "vite preview",
