@@ -1,4 +1,3 @@
-const { app } = require('electron');
 const fs = require('fs');
 const path = require('path');
 
@@ -8,7 +7,12 @@ let logPath = null;
 
 function getLogPath() {
   if (!enabled) return null;
-  if (!logPath) logPath = path.join(app.getPath('userData'), 'runtime-diagnostics.jsonl');
+  if (!logPath) {
+    // Keep pure scheduler/adapter tests Electron-free. Electron is required only
+    // for an explicitly enabled desktop diagnostic run.
+    const { app } = require('electron');
+    logPath = path.join(app.getPath('userData'), 'runtime-diagnostics.jsonl');
+  }
   return logPath;
 }
 

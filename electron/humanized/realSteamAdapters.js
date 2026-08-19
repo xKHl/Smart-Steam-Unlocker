@@ -3,6 +3,8 @@
  * The scheduler core receives only normalized outcome/verification objects.
  */
 
+const runtimeDiagnostics = require('../runtimeDiagnostics');
+
 const RETRYABLE_CODES = new Set([
   'STEAM_EXECUTION_FAILED',
   'STEAM_READ_UNAVAILABLE',
@@ -113,8 +115,18 @@ function createRealSteamVerificationAdapter({ steamManager }) {
       try {
         result = await steamManager.getAchievementVerification(appId, achievementId);
       } catch (error) {
+        runtimeDiagnostics.trace('verification', 'remote-read', { appId, achievementId, outcome: 'exception', errorCode: 'VERIFICATION_EXCEPTION' });
         return { verification: 'uncertain', errorCode: 'VERIFICATION_EXCEPTION', error: error instanceof Error ? error.message : String(error) };
       }
+      runtimeDiagnostics.trace('verification', 'remote-read', {
+        appId,
+        achievementId,
+        scheduleId: schedule.id,
+        verificationAttempt: (item?.verificationMeta?.attemptCount ?? 0) + 1,
+        outcome: result?.success ? (result.unlocked ? 'unlocked' : 'not-unlocked') : 'error',
+        errorCode: result?.errorCode ?? null,
+        endpoint: result?.endpoint ?? null,
+      });
       if (!result?.success) {
         const code = result?.errorCode;
         if (TERMINAL_CODES.has(code)) return { verification: 'failed', errorCode: code, error: result?.error || 'Steam verification rejected the operation.' };
