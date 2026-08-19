@@ -71,3 +71,49 @@ test('normal verification hides manual recheck while safety states remain presen
   assert.match(panel, /\{verificationView\?\.showRecheck && \(/);
   assert.doesNotMatch(panel, /\{verificationItem && \(\s*<button[\s\S]*?humanized-recheck-action/);
 });
+
+
+test('author ownership branding is visible in Sidebar and Settings through the trusted external-link boundary', () => {
+  const sidebar = source('src/components/Sidebar.jsx');
+  const settings = source('src/pages/Settings.jsx');
+  const handlers = source('electron/ipc/handlers.js');
+  const preload = source('electron/preload.js');
+
+  for (const ui of [sidebar, settings]) {
+    assert.match(ui, /Khalid Alotaibi/);
+    assert.match(ui, /Smart Steam Unlocker/);
+    assert.match(ui, /© 2026 Khalid Alotaibi/);
+    assert.match(ui, /window\.steamAPI\?\.app\?\.openExternal/);
+    assert.match(ui, /https:\/\/github\.com\/xKHI\/Smart-Steam-Unlocker/);
+    assert.match(ui, /https:\/\/alotaibi\.dev/);
+  }
+
+  assert.match(sidebar, /sidebar-credit/);
+  assert.match(sidebar, /GitHub<\/button>/);
+  assert.match(sidebar, /Website<\/button>/);
+  assert.match(settings, /ABOUT &amp; CREDITS/);
+  assert.match(settings, /Created by Khalid Alotaibi/);
+  assert.match(settings, /GitHub Repository/);
+  assert.match(handlers, /'https:\/\/github\.com\/xKHI\/Smart-Steam-Unlocker'/);
+  assert.match(handlers, /'https:\/\/alotaibi\.dev'/);
+  assert.match(preload, /openExternal:\s+\(url\) => ipcRenderer\.invoke\('app:open-external', url\)/);
+});
+
+test('Dashboard stays product-focused while Sidebar layout and existing navigation remain usable', () => {
+  const dashboard = source('src/pages/Dashboard.jsx');
+  const sidebar = source('src/components/Sidebar.jsx');
+  const styles = source('src/index.css');
+
+  assert.doesNotMatch(dashboard, /dashboard-footer/);
+  assert.doesNotMatch(dashboard, /GitHub: xkhi/);
+  assert.match(sidebar, /nav-dashboard/);
+  assert.match(sidebar, /nav-library/);
+  assert.match(sidebar, /nav-achievements/);
+  assert.match(sidebar, /nav-trading-cards/);
+  assert.match(sidebar, /nav-settings/);
+  assert.match(sidebar, /sidebar-footer/);
+  assert.match(styles, /\.sidebar-nav \{ min-height: 0; overflow-y: auto; \}/);
+  assert.match(styles, /\.sidebar-credit/);
+  assert.match(styles, /@media \(max-height: 720px\)/);
+  assert.match(styles, /\.settings-about-links/);
+});

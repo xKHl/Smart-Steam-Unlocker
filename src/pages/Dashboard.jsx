@@ -5,7 +5,6 @@ import {
   BookOpen,
   CheckCircle2,
   ChevronRight,
-  ExternalLink,
   Gamepad2,
   Loader2,
   RefreshCw,
@@ -149,14 +148,6 @@ export default function Dashboard({ steamStatus, selectedGame, onSteamReconnect 
     : 'Connect to Steam to start managing your achievements.';
   const overviewError = overview.errorCode ? DATA_ERROR_COPY[overview.errorCode] || DATA_ERROR_COPY.FETCH_ERROR : null;
 
-  async function openExternal(url) {
-    try {
-      await window.steamAPI?.app?.openExternal(url);
-    } catch {
-      // The footer remains non-blocking if the desktop bridge is unavailable.
-    }
-  }
-
   return (
     <div className="page-container dashboard-page animate-fade-in">
       <section className="dashboard-hero" aria-labelledby="dashboard-welcome">
@@ -293,13 +284,6 @@ export default function Dashboard({ steamStatus, selectedGame, onSteamReconnect 
         )}
       </section>
 
-      <footer className="dashboard-footer">
-        <span>© 2026 Khalid Alotaibi</span>
-        <span className="dashboard-footer-divider">·</span>
-        <button type="button" onClick={() => openExternal('https://github.com/xkhi')}><ExternalLink size={11} /> GitHub: xkhi</button>
-        <span className="dashboard-footer-divider">·</span>
-        <button type="button" onClick={() => openExternal('https://alotaibi.dev')}><ExternalLink size={11} /> alotaibi.dev</button>
-      </footer>
     </div>
   );
 }

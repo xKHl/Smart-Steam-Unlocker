@@ -1,7 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import {
   Key, Eye, EyeOff, Save, Check, Loader2,
-  AlertCircle, ExternalLink, ShieldCheck, RefreshCw, Trash2,
+  AlertCircle, ExternalLink, Github, Globe2, ShieldCheck, RefreshCw, Trash2,
 } from 'lucide-react';
 
 const ERROR_MESSAGES = {
@@ -93,6 +93,7 @@ export default function Settings() {
   };
 
   const secureStorageUnavailable = credentialStatus.storage === 'unavailable';
+  const openExternal = (url) => window.steamAPI?.app?.openExternal(url).catch(() => {});
 
   return (
     <div className="page-container animate-fade-in">
@@ -182,6 +183,31 @@ export default function Settings() {
           <p>The app uses secure operating-system storage when available. A previously exposed key should be revoked and replaced; saving a new key does not revoke the old one.</p>
         </div>
       </div>
+
+      <section className="settings-card settings-about-card" aria-labelledby="settings-about-title">
+        <div className="settings-card-header">
+          <div className="settings-about-monogram" aria-hidden="true">KA</div>
+          <div>
+            <p className="settings-about-eyebrow">ABOUT &amp; CREDITS</p>
+            <h2 id="settings-about-title" className="settings-section-title">Smart Steam Unlocker</h2>
+            <p className="settings-section-sub">Created by Khalid Alotaibi</p>
+          </div>
+        </div>
+        <p className="settings-about-description">A focused Steam achievement companion designed around clear progress, safe automation controls, and transparent Steam state.</p>
+        <div className="settings-about-links" role="group" aria-label="Project links">
+          <button type="button" className="settings-about-link" onClick={() => openExternal('https://github.com/xKHI/Smart-Steam-Unlocker')}>
+            <Github size={15} />
+            <span><strong>GitHub Repository</strong><small>github.com/xKHI/Smart-Steam-Unlocker</small></span>
+            <ExternalLink size={13} aria-hidden="true" />
+          </button>
+          <button type="button" className="settings-about-link" onClick={() => openExternal('https://alotaibi.dev')}>
+            <Globe2 size={15} />
+            <span><strong>Website</strong><small>alotaibi.dev</small></span>
+            <ExternalLink size={13} aria-hidden="true" />
+          </button>
+        </div>
+        <p className="settings-about-copyright">© 2026 Khalid Alotaibi</p>
+      </section>
     </div>
   );
 }

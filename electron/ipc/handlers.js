@@ -30,7 +30,7 @@ let _libraryCache     = null;
 let _libraryCacheTime = 0;
 const CACHE_TTL_MS    = 5 * 60 * 1000;
 const TRUSTED_EXTERNAL_URLS = new Set([
-  'https://github.com/xkhi',
+  'https://github.com/xKHI/Smart-Steam-Unlocker',
   'https://alotaibi.dev',
 ]);
 
