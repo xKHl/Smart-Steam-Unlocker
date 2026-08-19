@@ -20,6 +20,9 @@ test('IPC validators accept bounded canonical payloads', () => {
   });
   assert.deepEqual(sanitizeUnlockPayload({ appId: 480, achievementId: 'ACH_WIN' }), { appId: 480, achievementId: 'ACH_WIN' });
   assert.equal(sanitizeOrderingPayload({ achievements: [], orderMode: 'original' }).achievements.length, 0);
+  assert.deepEqual(sanitizeOrderingPayload({ achievements: [achievement], orderMode: 'natural-story-progression', appId: 1_063_660 }), {
+    achievements: [achievement], orderMode: 'natural-story-progression', appId: 1_063_660,
+  });
   assert.equal(sanitizeTimerPayload({ achievements: [achievement], base: 1, variance: 15, fixedMins: 2 }).achievements[0].id, 'ACH_WIN');
   assert.equal(sanitizeOwnedGamesOptions({ forceRefresh: true }).forceRefresh, true);
   assert.equal(sanitizeHumanizedPayload({
@@ -41,6 +44,8 @@ test('IPC validators reject wrong types, unsafe URLs, unexpected fields, duplica
   invalid(() => sanitizeUnlockPayload({ appId: 480, achievementId: '../unsafe' }));
   invalid(() => sanitizeOwnedGamesOptions({ forceRefresh: 'yes' }));
   invalid(() => sanitizeOrderingPayload({ achievements: [], orderMode: 'not-a-mode' }));
+  invalid(() => sanitizeOrderingPayload({ achievements: [], orderMode: 'easiest-to-hardest' }));
+  invalid(() => sanitizeOrderingPayload({ achievements: [], orderMode: 'natural-story-progression', appId: 'invalid' }));
   invalid(() => sanitizeTimerPayload({ achievements: [achievement], unexpected: true }));
   invalid(() => sanitizeHumanizedPayload({
     appId: 480, achievements: [achievement, { ...achievement, originalIndex: 1 }], orderMode: 'original', seed: 'safe', startAt: 1,

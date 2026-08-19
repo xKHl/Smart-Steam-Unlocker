@@ -25,12 +25,12 @@ test('the grid projection follows canonical IDs immediately across all Humanized
   const original = projectAchievementDisplay({ achievements, orderedIds: idsFor(ORDER_MODES.ORIGINAL), useCanonicalOrder: true });
   const common = projectAchievementDisplay({ achievements, orderedIds: idsFor(ORDER_MODES.MOST_COMMON_TO_RAREST), useCanonicalOrder: true });
   const rare = projectAchievementDisplay({ achievements, orderedIds: idsFor(ORDER_MODES.RAREST_TO_MOST_COMMON), useCanonicalOrder: true });
-  const easiest = projectAchievementDisplay({ achievements, orderedIds: idsFor(ORDER_MODES.EASIEST_TO_HARDEST), useCanonicalOrder: true });
+  const natural = projectAchievementDisplay({ achievements, orderedIds: idsFor(ORDER_MODES.NATURAL_STORY), useCanonicalOrder: true });
 
   assert.deepEqual(original.map((achievement) => achievement.id), ['MID_A', 'COMMON', 'RARE', 'MID_B', 'UNKNOWN']);
   assert.deepEqual(common.map((achievement) => achievement.id), ['COMMON', 'MID_A', 'MID_B', 'RARE', 'UNKNOWN']);
   assert.deepEqual(rare.map((achievement) => achievement.id), ['RARE', 'MID_A', 'MID_B', 'COMMON', 'UNKNOWN']);
-  assert.deepEqual(easiest.map((achievement) => achievement.id), common.map((achievement) => achievement.id));
+  assert.deepEqual(natural.map((achievement) => achievement.id), original.map((achievement) => achievement.id));
   assert.notDeepEqual(common.map((achievement) => achievement.id), rare.map((achievement) => achievement.id));
 });
 
@@ -93,7 +93,7 @@ async function visibleLockedIdsFor(mode, options = {}) {
 
 test('Select All Locked follows the visible canonical locked order in every Humanized mode', async () => {
   assert.deepEqual(await visibleLockedIdsFor(ORDER_MODES.ORIGINAL), ['MID_A', 'RARE', 'MID_B']);
-  assert.deepEqual(await visibleLockedIdsFor(ORDER_MODES.EASIEST_TO_HARDEST), ['MID_A', 'MID_B', 'RARE']);
+  assert.deepEqual(await visibleLockedIdsFor(ORDER_MODES.NATURAL_STORY), ['MID_A', 'RARE', 'MID_B']);
   assert.deepEqual(await visibleLockedIdsFor(ORDER_MODES.MOST_COMMON_TO_RAREST), ['MID_A', 'MID_B', 'RARE']);
   assert.deepEqual(await visibleLockedIdsFor(ORDER_MODES.RAREST_TO_MOST_COMMON), ['RARE', 'MID_A', 'MID_B']);
 });

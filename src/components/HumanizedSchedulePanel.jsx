@@ -24,7 +24,7 @@ import {
 
 const ORDER_OPTIONS = [
   { value: 'original', label: 'Original', description: 'Steam’s original achievement order' },
-  { value: 'easiest-to-hardest', label: 'Ease proxy: common → rare', description: 'Completion-rate proxy; not measured gameplay difficulty' },
+  { value: 'natural-story-progression', label: 'Natural / Story Progression', description: 'Follow a plausible playthrough from early progression to the end.' },
   { value: 'most-common-to-rarest', label: 'Most Common → Rarest', description: 'Progress from common to rare achievements' },
   { value: 'rarest-to-most-common', label: 'Rarest → Most Common', description: 'Start with the least commonly completed achievements' },
 ];

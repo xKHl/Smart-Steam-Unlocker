@@ -70,18 +70,18 @@ test('normalization clamps percentages and removes malformed duplicate entries',
 });
 
 test('ordering is deterministic with stable original-order fallback for missing percentages', () => {
-  const easiest = orderAchievements(achievements, ORDER_MODES.EASIEST_TO_HARDEST);
+  const mostCommon = orderAchievements(achievements, ORDER_MODES.MOST_COMMON_TO_RAREST);
   const rarest = orderAchievements(achievements, ORDER_MODES.RAREST_TO_MOST_COMMON);
   const original = orderAchievements([...achievements].reverse(), ORDER_MODES.ORIGINAL);
 
-  assert.deepEqual(easiest.map((item) => item.id), ['INTRO', 'BOSS', 'ENDING', 'UNKNOWN']);
+  assert.deepEqual(mostCommon.map((item) => item.id), ['INTRO', 'BOSS', 'ENDING', 'UNKNOWN']);
   assert.deepEqual(rarest.map((item) => item.id), ['ENDING', 'BOSS', 'INTRO', 'UNKNOWN']);
   assert.deepEqual(original.map((item) => item.id), ['INTRO', 'BOSS', 'ENDING', 'UNKNOWN']);
-  assert.deepEqual(orderAchievements(achievements, ORDER_MODES.EASIEST_TO_HARDEST), easiest);
+  assert.deepEqual(orderAchievements(achievements, ORDER_MODES.MOST_COMMON_TO_RAREST), mostCommon);
 });
 
 test('timeline generation is reproducible and always chronologically bounded', () => {
-  const ordered = orderAchievements(achievements, ORDER_MODES.EASIEST_TO_HARDEST);
+  const ordered = orderAchievements(achievements, ORDER_MODES.MOST_COMMON_TO_RAREST);
   const options = { seed: 'fixed-seed', startAt: 1_700_000_000_000, minIntervalMs: 1_000, maxIntervalMs: 10_000 };
   const first = createScheduleTimeline(ordered, options);
   const second = createScheduleTimeline(ordered, options);

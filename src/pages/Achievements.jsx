@@ -12,6 +12,13 @@ import {
 
 const FILTERS = ['All', 'Locked', 'Unlocked'];
 
+const HUMANIZED_ORDER_LABELS = {
+  original: 'Original Steam order',
+  'natural-story-progression': 'Natural / Story Progression',
+  'most-common-to-rarest': 'Most Common → Rarest',
+  'rarest-to-most-common': 'Rarest → Most Common',
+};
+
 function formatTime(seconds) {
   if (!seconds) return '00:00';
   const m = Math.floor(seconds / 60).toString().padStart(2, '0');
@@ -44,7 +51,7 @@ export default function Achievements({ selectedGame, onChangeGame }) {
   const [useFixedTime, setUseFixedTime] = useState(false);
   const [fixedMins, setFixedMins] = useState(1);
   const [unlockMode, setUnlockMode] = useState('instant');
-  const [humanizedOrderMode, setHumanizedOrderMode] = useState('original');
+  const [humanizedOrderMode, setHumanizedOrderMode] = useState('natural-story-progression');
   const [humanizedOrderCache, setHumanizedOrderCache] = useState({ revision: '', byMode: {} });
 
   // ── Initialization ──────────────────────────────────────────────────────
@@ -142,9 +149,9 @@ export default function Achievements({ selectedGame, onChangeGame }) {
       return () => { cancelled = true; };
     }
 
-    const modes = ['original', 'easiest-to-hardest', 'most-common-to-rarest', 'rarest-to-most-common'];
+    const modes = ['original', 'natural-story-progression', 'most-common-to-rarest', 'rarest-to-most-common'];
     Promise.all(modes.map(async (mode) => {
-      const ordered = await orderAchievements(achievements, mode);
+      const ordered = await orderAchievements(achievements, mode, selectedGame?.appId);
       return [mode, Array.isArray(ordered) ? ordered.map((achievement) => achievement.id) : []];
     })).then((entries) => {
       if (!cancelled) setHumanizedOrderCache({ revision: orderRevision, byMode: Object.fromEntries(entries) });
@@ -155,7 +162,7 @@ export default function Achievements({ selectedGame, onChangeGame }) {
     });
 
     return () => { cancelled = true; };
-  }, [achievements, orderRevision]);
+  }, [achievements, orderRevision, selectedGame?.appId]);
 
   const canonicalOrderedIds = humanizedOrderCache.revision === orderRevision
     ? humanizedOrderCache.byMode[humanizedOrderMode]
@@ -428,7 +435,7 @@ export default function Achievements({ selectedGame, onChangeGame }) {
           {/* ── Toolbar ── */}
           {unlockMode === 'humanized' && (
             <div className="humanized-grid-context" role="status">
-              <span>Grid ordered by <strong>{humanizedOrderMode === 'original' ? 'Original Steam order' : humanizedOrderMode === 'easiest-to-hardest' ? 'Easiest → Hardest' : humanizedOrderMode === 'most-common-to-rarest' ? 'Most Common → Rarest' : 'Rarest → Most Common'}</strong>. Select locked achievements to include them in a new schedule.</span>
+              <span>Grid ordered by <strong>{HUMANIZED_ORDER_LABELS[humanizedOrderMode] || 'Original Steam order'}</strong>. Select locked achievements to include them in a new schedule.</span>
             </div>
           )}
           <div className="toolbar" role="toolbar" aria-label="Achievement filters">

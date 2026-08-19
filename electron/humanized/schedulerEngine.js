@@ -65,7 +65,7 @@ function scheduleIdFor(appId, seed, ordered, timing = {}) {
 
 function createSchedule({ appId, achievements, orderMode = ORDER_MODES.ORIGINAL, seed = 'humanized-schedule', startAt = Date.now(), timingPreset = null, timelineOptions = {} }) {
   if (!appId && appId !== 0) throw new Error('A valid appId is required to create a schedule.');
-  const ordered = orderAchievements(achievements, orderMode);
+  const ordered = orderAchievements(achievements, orderMode, { appId });
   if (!ordered.length) throw new Error('At least one valid achievement is required to create a schedule.');
 
   const timelineStartAt = Number.isFinite(startAt) ? Math.floor(startAt) : Date.now();

@@ -93,14 +93,16 @@ function sanitizeOrderMode(value) {
 
 function sanitizeOrderingPayload(value) {
   const source = assertPlainObject(value, 'Achievement ordering request');
-  assertNoUnexpectedFields(source, new Set(['achievements', 'orderMode']), 'Achievement ordering request');
+  assertNoUnexpectedFields(source, new Set(['achievements', 'orderMode', 'appId']), 'Achievement ordering request');
   if (!Array.isArray(source.achievements) || source.achievements.length > MAX_ACHIEVEMENTS) {
     throw new IpcValidationError(`Achievements must contain at most ${MAX_ACHIEVEMENTS} entries.`);
   }
-  return {
+  const payload = {
     achievements: source.achievements.length ? sanitizeAchievements(source.achievements) : [],
     orderMode: sanitizeOrderMode(source.orderMode),
   };
+  if (source.appId !== undefined) payload.appId = assertAppId(source.appId);
+  return payload;
 }
 
 function sanitizeSwitchGamePayload(value) {

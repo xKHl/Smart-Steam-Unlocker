@@ -188,8 +188,8 @@ function registerIpcHandlers() {
   // Renderer display ordering deliberately delegates to the same canonical
   // normalization and ordering implementation used by schedule generation.
   registerHandler('humanized:order-achievements', (_e, payload) => {
-    const { achievements, orderMode } = sanitizeOrderingPayload(payload);
-    return orderAchievements(achievements, orderMode);
+    const { achievements, orderMode, appId } = sanitizeOrderingPayload(payload);
+    return orderAchievements(achievements, orderMode, { appId });
   });
   registerHandler('humanized:create', (_e, payload) => humanizedService.create(sanitizeHumanizedPayload(payload)));
   registerHandler('humanized:replace', (_e, payload) => humanizedService.replace(sanitizeHumanizedPayload(payload)));

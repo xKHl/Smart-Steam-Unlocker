@@ -54,7 +54,7 @@ contextBridge.exposeInMainWorld('steamAPI', {
   // ─── Humanized Scheduler ─────────────────────────────────────────────────
   humanized: {
     getStatus: () => ipcRenderer.invoke('humanized:get-status'),
-    orderAchievements: (achievements, orderMode) => ipcRenderer.invoke('humanized:order-achievements', { achievements, orderMode }),
+    orderAchievements: (achievements, orderMode, appId) => ipcRenderer.invoke('humanized:order-achievements', { achievements, orderMode, ...(appId !== undefined ? { appId } : {}) }),
     create: (payload) => ipcRenderer.invoke('humanized:create', payload),
     replace: (payload) => ipcRenderer.invoke('humanized:replace', payload),
     start: () => ipcRenderer.invoke('humanized:start'),

@@ -22,7 +22,7 @@ test('canonical Humanized display ordering covers original, common, rare, missin
   const originalSnapshot = structuredClone(sourceAchievements);
 
   assert.deepEqual(ids(ORDER_MODES.ORIGINAL), ['MID_A', 'COMMON', 'RARE', 'MISSING', 'MID_B']);
-  assert.deepEqual(ids(ORDER_MODES.EASIEST_TO_HARDEST), ['COMMON', 'MID_A', 'MID_B', 'RARE', 'MISSING']);
+  assert.deepEqual(ids(ORDER_MODES.NATURAL_STORY), ['MID_A', 'COMMON', 'RARE', 'MISSING', 'MID_B']);
   assert.deepEqual(ids(ORDER_MODES.MOST_COMMON_TO_RAREST), ['COMMON', 'MID_A', 'MID_B', 'RARE', 'MISSING']);
   assert.deepEqual(ids(ORDER_MODES.RAREST_TO_MOST_COMMON), ['RARE', 'MID_A', 'MID_B', 'COMMON', 'MISSING']);
   assert.deepEqual(orderAchievements([], ORDER_MODES.RAREST_TO_MOST_COMMON), []);
