@@ -107,20 +107,17 @@ function AppContent() {
     window.steamAPI?.app.getVersion().then(setAppVersion).catch(() => {});
   }, []);
 
-  // ── Restore persisted state once at application startup ─────────────────
-  // `useNavigate` is location-dependent in this router version. Re-subscribing
-  // on every navigation would re-apply the persisted game and redirect all
-  // routes back to Achievements. Restoration is intentionally one-time per app
-  // process, while normal game selection remains handled below.
+  // ── Initialize session selection once at application startup ─────────────
+  // Persisted selected-game data remains available to the main process for
+  // schedule/Steam safety, but it must never become an active renderer selection
+  // without an explicit choice in this application session. Keeping the one-time
+  // guard preserves the previously fixed route behavior when lifecycle messages
+  // are delivered more than once.
   useEffect(() => {
     let active = true;
-    const applyInitialState = (state) => {
+    const applyInitialState = () => {
       if (!active || initialStateApplied.current) return;
       initialStateApplied.current = true;
-      if (state?.selectedGame) {
-        setSelectedGame(state.selectedGame);
-        navigate('/achievements', { replace: true });
-      }
     };
     window.steamAPI?.app.getInitialState().then(applyInitialState).catch(() => {});
     const unsubscribe = window.steamAPI?.app.onInitialState(applyInitialState);
@@ -128,8 +125,6 @@ function AppContent() {
       active = false;
       unsubscribe?.();
     };
-    // Initial-state restoration must not depend on location-sensitive navigate.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   // ── Game Selection Handler ───────────────────────────────────────────────

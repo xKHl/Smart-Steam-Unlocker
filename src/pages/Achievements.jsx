@@ -3,6 +3,12 @@ import { Search, Filter, ChevronRight, RotateCcw, Clock, Play, Square, Settings2
 import AchievementCard from '../components/AchievementCard';
 import HumanizedSchedulePanel from '../components/HumanizedSchedulePanel';
 import { achievementOrderRevision, projectAchievementDisplay } from '../lib/achievementDisplayProjection.mjs';
+import {
+  addVisibleLockedSelection,
+  areAllVisibleLockedSelected,
+  removeVisibleLockedSelection,
+  visibleLockedAchievementIds,
+} from '../lib/achievementBulkSelection.mjs';
 
 const FILTERS = ['All', 'Locked', 'Unlocked'];
 
@@ -181,8 +187,17 @@ export default function Achievements({ selectedGame, onChangeGame }) {
     return map;
   }, [selectedIds]);
 
-  const lockedAchievements = useMemo(() => achievements.filter(a => !a.unlocked), [achievements]);
-  const allLockedSelected = lockedAchievements.length > 0 && lockedAchievements.every(a => selectedIds.has(a.id));
+  // Bulk selection is deliberately derived from the rendered projection. In
+  // Humanized mode that projection already uses main-process canonical IDs;
+  // search and filter are applied before this list is created.
+  const visibleLockedIds = useMemo(
+    () => visibleLockedAchievementIds(displayedAchievements),
+    [displayedAchievements],
+  );
+  const allVisibleLockedSelected = useMemo(
+    () => areAllVisibleLockedSelected(selectedIds, visibleLockedIds),
+    [selectedIds, visibleLockedIds],
+  );
 
   // ── Actions ─────────────────────────────────────────────────────────────
   const handleToggleSelect = (id) => {
@@ -193,13 +208,11 @@ export default function Achievements({ selectedGame, onChangeGame }) {
   };
 
   const handleSelectAllLocked = () => {
-    if (allLockedSelected) {
-      setSelectedIds(new Set());
-    } else {
-      const next = new Set(selectedIds);
-      lockedAchievements.forEach(a => next.add(a.id));
-      setSelectedIds(next);
-    }
+    setSelectedIds((current) => (
+      allVisibleLockedSelected
+        ? removeVisibleLockedSelection(current, visibleLockedIds)
+        : addVisibleLockedSelection(current, visibleLockedIds)
+    ));
   };
 
   const handleStartQueue = () => {
@@ -441,13 +454,14 @@ export default function Achievements({ selectedGame, onChangeGame }) {
                 </button>
               ))}
             </div>
-            {lockedAchievements.length > 0 && (
+            {visibleLockedIds.length > 0 && (
               <button 
                 className="btn-secondary" 
                 style={{ marginLeft: 8, padding: '5px 12px', fontSize: 12 }}
                 onClick={handleSelectAllLocked}
+                title="Select only the currently visible locked achievements in grid order"
               >
-                {allLockedSelected ? 'Deselect All Locked' : 'Select All Locked'}
+                {allVisibleLockedSelected ? 'Deselect Visible Locked' : 'Select All Locked'}
               </button>
             )}
             {selectedIds.size > 0 && (

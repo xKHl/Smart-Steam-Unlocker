@@ -213,7 +213,9 @@ function registerIpcHandlers() {
 
   // ─── App Info ─────────────────────────────────────────────────────────────
   registerHandler('app:get-version', () => app.getVersion());
-  registerHandler('app:get-initial-state', () => ({ selectedGame: settingsStore.get('selectedGame') }));
+  // A persisted game may be required by background schedule/Steam safety checks,
+  // but active renderer selection is always an explicit per-session user choice.
+  registerHandler('app:get-initial-state', () => ({ selectedGame: null }));
   registerHandler('app:get-diagnostics-status', () => runtimeDiagnostics.getStatus());
   registerHandler('app:trace-interaction', (_event, payload = {}) => {
     runtimeDiagnostics.trace('renderer', 'interaction', {

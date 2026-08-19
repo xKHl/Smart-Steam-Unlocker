@@ -74,3 +74,88 @@ test('Instant mode ignores Humanized ordered IDs and preserves the Steam source 
 
   assert.deepEqual(instant.map((achievement) => achievement.id), ['MID_A', 'COMMON', 'RARE', 'MID_B', 'UNKNOWN']);
 });
+
+async function bulkSelectionModule() {
+  return import('../src/lib/achievementBulkSelection.mjs');
+}
+
+async function visibleLockedIdsFor(mode, options = {}) {
+  const { projectAchievementDisplay } = await projectionModule();
+  const { visibleLockedAchievementIds } = await bulkSelectionModule();
+  const displayed = projectAchievementDisplay({
+    achievements,
+    orderedIds: idsFor(mode),
+    useCanonicalOrder: true,
+    ...options,
+  });
+  return visibleLockedAchievementIds(displayed);
+}
+
+test('Select All Locked follows the visible canonical locked order in every Humanized mode', async () => {
+  assert.deepEqual(await visibleLockedIdsFor(ORDER_MODES.ORIGINAL), ['MID_A', 'RARE', 'MID_B']);
+  assert.deepEqual(await visibleLockedIdsFor(ORDER_MODES.EASIEST_TO_HARDEST), ['MID_A', 'MID_B', 'RARE']);
+  assert.deepEqual(await visibleLockedIdsFor(ORDER_MODES.MOST_COMMON_TO_RAREST), ['MID_A', 'MID_B', 'RARE']);
+  assert.deepEqual(await visibleLockedIdsFor(ORDER_MODES.RAREST_TO_MOST_COMMON), ['RARE', 'MID_A', 'MID_B']);
+});
+
+test('bulk selection assigns sequence in visible order without letting unlocked items consume positions', async () => {
+  const { addVisibleLockedSelection } = await bulkSelectionModule();
+  const visibleLockedIds = await visibleLockedIdsFor(ORDER_MODES.RAREST_TO_MOST_COMMON);
+  const selection = addVisibleLockedSelection(new Set(), visibleLockedIds);
+
+  assert.deepEqual([...selection], ['RARE', 'MID_A', 'MID_B']);
+  assert.equal(selection.has('COMMON'), false);
+  assert.equal(selection.has('UNKNOWN'), false);
+});
+
+test('search-filtered Select All Locked adds only visible matching locked achievements in display order', async () => {
+  const { addVisibleLockedSelection } = await bulkSelectionModule();
+  const visibleLockedIds = await visibleLockedIdsFor(ORDER_MODES.RAREST_TO_MOST_COMMON, { search: 'mid', filter: 'Locked' });
+  const hiddenUnlockedIds = await visibleLockedIdsFor(ORDER_MODES.RAREST_TO_MOST_COMMON, { filter: 'Unlocked' });
+  const selection = addVisibleLockedSelection(new Set(['RARE']), visibleLockedIds);
+
+  assert.deepEqual(visibleLockedIds, ['MID_A', 'MID_B']);
+  assert.deepEqual(hiddenUnlockedIds, []);
+  assert.deepEqual([...selection], ['RARE', 'MID_A', 'MID_B']);
+});
+
+test('bulk selection preserves manual selections and deselects only the current visible locked subset', async () => {
+  const {
+    addVisibleLockedSelection,
+    areAllVisibleLockedSelected,
+    removeVisibleLockedSelection,
+  } = await bulkSelectionModule();
+  const visibleLockedIds = await visibleLockedIdsFor(ORDER_MODES.MOST_COMMON_TO_RAREST, { search: 'mid' });
+  const manuallySelected = new Set(['RARE', 'MID_A']);
+  const afterBulkAdd = addVisibleLockedSelection(manuallySelected, visibleLockedIds);
+
+  assert.deepEqual([...afterBulkAdd], ['RARE', 'MID_A', 'MID_B']);
+  assert.equal(areAllVisibleLockedSelected(afterBulkAdd, visibleLockedIds), true);
+  assert.deepEqual([...removeVisibleLockedSelection(afterBulkAdd, visibleLockedIds)], ['RARE']);
+});
+
+test('Humanized schedule generation resolves the selected visible IDs into the same canonical execution order', async () => {
+  const visibleLockedIds = await visibleLockedIdsFor(ORDER_MODES.RAREST_TO_MOST_COMMON);
+  const selectedItemsInSteamSourceOrder = achievements.filter((achievement) => visibleLockedIds.includes(achievement.id));
+  const schedule = createSchedule({
+    appId: 480,
+    achievements: selectedItemsInSteamSourceOrder,
+    orderMode: ORDER_MODES.RAREST_TO_MOST_COMMON,
+    seed: 'visible-bulk-order',
+    startAt: 10_000,
+  });
+
+  assert.deepEqual(schedule.items.map((item) => item.id), visibleLockedIds);
+});
+
+test('Instant mode retains Steam source order even when Humanized bulk ordering is available', async () => {
+  const { projectAchievementDisplay } = await projectionModule();
+  const { visibleLockedAchievementIds } = await bulkSelectionModule();
+  const displayed = projectAchievementDisplay({
+    achievements,
+    orderedIds: idsFor(ORDER_MODES.RAREST_TO_MOST_COMMON),
+    useCanonicalOrder: false,
+  });
+
+  assert.deepEqual(visibleLockedAchievementIds(displayed), ['MID_A', 'RARE', 'MID_B']);
+});

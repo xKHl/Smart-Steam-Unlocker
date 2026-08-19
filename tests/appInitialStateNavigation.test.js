@@ -5,9 +5,9 @@ const test = require('node:test');
 
 const appSource = fs.readFileSync(path.join(__dirname, '..', 'src', 'App.jsx'), 'utf8');
 
-test('persisted selected-game restoration is guarded to a single startup application', () => {
+test('session initialization is guarded to a single startup application', () => {
   const restorationBlock = appSource.slice(
-    appSource.indexOf('// ── Restore persisted state once at application startup'),
+    appSource.indexOf('// ── Initialize session selection once at application startup'),
     appSource.indexOf('// ── Game Selection Handler'),
   );
 

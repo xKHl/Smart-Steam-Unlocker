@@ -2,7 +2,6 @@ const { app, BrowserWindow } = require('electron');
 const path = require('path');
 const { registerIpcHandlers } = require('./ipc/handlers');
 const { initSteam, shutdown } = require('./steamManager');
-const settingsStore = require('./settingsStore');
 const runtimeDiagnostics = require('./runtimeDiagnostics');
 
 const isDev = process.env.NODE_ENV === 'development';
@@ -98,16 +97,10 @@ async function createWindow() {
     await mainWindow.loadFile(path.join(__dirname, '../dist/index.html'));
   }
 
-  // ── Show after paint + push persisted state ───────────────────────────────
+  // ── Show after paint ─────────────────────────────────────────────────────
   mainWindow.once('ready-to-show', () => {
     mainWindow.show();
     mainWindow.focus();
-
-    // After a game-switch relaunch, restore the selected game for the renderer
-    const selectedGame = settingsStore.get('selectedGame');
-    if (selectedGame) {
-      mainWindow.webContents.send('app:initial-state', { selectedGame });
-    }
   });
 
   // Fallback: force show the window just in case ready-to-show didn't fire

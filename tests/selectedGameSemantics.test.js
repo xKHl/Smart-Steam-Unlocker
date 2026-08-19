@@ -13,7 +13,7 @@ test('a missing settings file has no implicit selected-game value', () => {
   assert.match(settingsStore, /return readAll\(\)\[key\] \?\? defaultValue;/);
 });
 
-test('selected game is persisted only by an explicit sanitized switch-game request and restored as selection state', () => {
+test('selected game is persisted only by an explicit sanitized switch-game request and never restored as active startup selection', () => {
   const handlers = source('electron/ipc/handlers.js');
   const main = source('electron/main.js');
   const app = source('src/App.jsx');
@@ -22,10 +22,11 @@ test('selected game is persisted only by an explicit sanitized switch-game reque
   assert.equal(selectionWrites.length, 1);
   assert.match(handlers, /const \{ appId, name, headerImage \} = sanitizeSwitchGamePayload\(payload\);/);
   assert.match(handlers, /settingsStore\.set\('selectedGame', \{ appId, name, headerImage \}\);/);
-  assert.match(handlers, /app:get-initial-state', \(\) => \(\{ selectedGame: settingsStore\.get\('selectedGame'\) \}\)/);
-  assert.match(main, /const selectedGame = settingsStore\.get\('selectedGame'\);/);
-  assert.match(app, /if \(state\?\.selectedGame\) \{/);
-  assert.match(app, /setSelectedGame\(state\.selectedGame\);/);
+  assert.match(handlers, /app:get-initial-state', \(\) => \(\{ selectedGame: null \}\)/);
+  assert.doesNotMatch(main, /app:initial-state/);
+  assert.match(app, /explicit choice in this application session/);
+  assert.doesNotMatch(app, /state\?\.selectedGame/);
+  assert.doesNotMatch(app, /setSelectedGame\(state\.selectedGame\)/);
 });
 
 test('first run remains library-led and does not open achievement data without a selected game', () => {
@@ -62,7 +63,7 @@ test('the protected route-restoration guard remains one-time only', () => {
   assert.match(app, /const initialStateApplied = useRef\(false\);/);
   assert.match(app, /if \(!active \|\| initialStateApplied\.current\) return;/);
   assert.match(app, /initialStateApplied\.current = true;/);
-  assert.match(app, /Initial-state restoration must not depend on location-sensitive navigate\./);
+  assert.match(app, /previously fixed route behavior/);
 });
 
 test('normal verification hides manual recheck while safety states remain presentation-controlled', () => {
