@@ -40,6 +40,7 @@ function AppContent() {
   const navigate = useNavigate();
   const location = useLocation();
   const diagnosticsEnabled = useRef(false);
+  const initialStateApplied = useRef(false);
 
   const [steamStatus,  setSteamStatus]  = useState({ connected: false, playerName: null, steamId: null });
   const [selectedGame, setSelectedGame] = useState(null);
@@ -106,11 +107,17 @@ function AppContent() {
     window.steamAPI?.app.getVersion().then(setAppVersion).catch(() => {});
   }, []);
 
-  // ── Restore State After Game-Switch Relaunch ────────────────────────────
+  // ── Restore persisted state once at application startup ─────────────────
+  // `useNavigate` is location-dependent in this router version. Re-subscribing
+  // on every navigation would re-apply the persisted game and redirect all
+  // routes back to Achievements. Restoration is intentionally one-time per app
+  // process, while normal game selection remains handled below.
   useEffect(() => {
     let active = true;
     const applyInitialState = (state) => {
-      if (active && state?.selectedGame) {
+      if (!active || initialStateApplied.current) return;
+      initialStateApplied.current = true;
+      if (state?.selectedGame) {
         setSelectedGame(state.selectedGame);
         navigate('/achievements', { replace: true });
       }
@@ -121,7 +128,9 @@ function AppContent() {
       active = false;
       unsubscribe?.();
     };
-  }, [navigate]);
+    // Initial-state restoration must not depend on location-sensitive navigate.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   // ── Game Selection Handler ───────────────────────────────────────────────
   const handleGameSelect = useCallback(async (game) => {

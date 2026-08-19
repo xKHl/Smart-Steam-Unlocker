@@ -17,6 +17,7 @@ const settingsStore = require('./settingsStore');
 const credentialStore = require('./credentialStore');
 const { createSteamApiClient, STEAM_READ_ERROR } = require('./steamApiClient');
 const runtimeDiagnostics = require('./runtimeDiagnostics');
+const { pollForVerifiedUnlock } = require('./humanized/verificationPolling');
 const { app, BrowserWindow } = require('electron');
 
 const steamApiClient = createSteamApiClient();
@@ -534,36 +535,36 @@ async function getAchievementVerification(appId, achievementId) {
     return { success: false, appId, achievementId, error: 'Steam player identity is unavailable.', errorCode: 'MISSING_STEAM_ID' };
   }
 
-  let lastResult = null;
-  for (const delayMs of VERIFICATION_RETRY_DELAYS_MS) {
-    await waitForVerificationDelay(delayMs);
-    const result = await steamApiClient.getPlayerAchievementState({
-      apiKey,
-      appId,
-      steamId: status.steamId,
-      achievementId,
-    });
-    if (result.success) return { success: true, appId, achievementId, unlocked: result.unlocked };
+  const lastResult = await pollForVerifiedUnlock({
+    delays: VERIFICATION_RETRY_DELAYS_MS,
+    waitForDelay: waitForVerificationDelay,
+    probe: async () => {
+      const result = await steamApiClient.getPlayerAchievementState({
+        apiKey,
+        appId,
+        steamId: status.steamId,
+        achievementId,
+      });
+      if (result.success) return result;
 
-    // A player response may omit an achievement that is valid in the game
-    // schema (for example while Steam data is propagating). Fetch schema only
-    // in that ambiguous case instead of on every polling attempt.
-    if (result.errorCode === STEAM_READ_ERROR.PLAYER_ACHIEVEMENT_MISSING) {
-      const schema = await steamApiClient.hasSchemaAchievement({ apiKey, appId, achievementId });
-      if (schema.success && !schema.found) {
-        return { success: false, appId, achievementId, error: `Achievement ${achievementId} was not found for App ID ${appId}.`, errorCode: 'ACHIEVEMENT_NOT_FOUND' };
+      // A player response may omit an achievement that is valid in the game
+      // schema (for example while Steam data is propagating). Fetch schema only
+      // in that ambiguous case instead of on every polling attempt.
+      if (result.errorCode === STEAM_READ_ERROR.PLAYER_ACHIEVEMENT_MISSING) {
+        const schema = await steamApiClient.hasSchemaAchievement({ apiKey, appId, achievementId });
+        if (schema.success && !schema.found) {
+          return { success: false, errorCode: 'ACHIEVEMENT_NOT_FOUND', endpoint: 'achievement-schema' };
+        }
+        if (schema.success && schema.found) {
+          return { success: false, errorCode: STEAM_READ_ERROR.PLAYER_STATE_INVALID, endpoint: 'player-achievements' };
+        }
+        return schema;
       }
-      if (schema.success && schema.found) {
-        lastResult = { success: false, errorCode: STEAM_READ_ERROR.PLAYER_STATE_INVALID, endpoint: 'player-achievements' };
-        continue;
-      }
-      lastResult = schema;
-      continue;
-    }
-    lastResult = result;
-  }
+      return result;
+    },
+  });
 
-  if (lastResult?.success) return { success: true, appId, achievementId, unlocked: false };
+  if (lastResult?.success) return { success: true, appId, achievementId, unlocked: lastResult.unlocked === true };
   return {
     success: false,
     appId,
