@@ -13,6 +13,7 @@ import {
   Trash2,
 } from 'lucide-react';
 import { itemStatusPresentation, verificationPresentation } from '../lib/humanizedVerificationPresentation.mjs';
+import { shouldRefreshHumanizedCountdown } from '../lib/humanizedCountdownRefresh.mjs';
 import {
   DEFAULT_TIMING_PRESET,
   HUMANIZED_TIMING_PRESETS,
@@ -73,6 +74,7 @@ export default function HumanizedSchedulePanel({ selectedGame, achievements, sel
   const [error, setError] = useState('');
   const [isWorking, setIsWorking] = useState(false);
   const [showAllItems, setShowAllItems] = useState(false);
+  const [clockNow, setClockNow] = useState(() => Date.now());
 
   useEffect(() => {
     let active = true;
@@ -119,6 +121,20 @@ export default function HumanizedSchedulePanel({ selectedGame, achievements, sel
     ? 'Activating'
     : verificationView?.title || (nextItem ? 'Waiting for scheduled time' : 'Waiting to begin');
   const nextUnlockAt = nextItem?.nextAttemptAt || nextItem?.scheduledAt;
+  const refreshCountdown = shouldRefreshHumanizedCountdown({
+    scheduleState: schedule?.state,
+    nextUnlockAt,
+    nextVerificationAt,
+    verificationExhausted: verificationItem?.verificationMeta?.exhausted,
+  });
+
+  useEffect(() => {
+    if (!refreshCountdown) return undefined;
+    const refresh = () => setClockNow(Date.now());
+    refresh();
+    const interval = setInterval(refresh, 1_000);
+    return () => clearInterval(interval);
+  }, [refreshCountdown, nextUnlockAt, nextVerificationAt, verificationItem?.verificationMeta?.exhausted]);
 
   async function invoke(action) {
     setIsWorking(true);
@@ -297,7 +313,7 @@ export default function HumanizedSchedulePanel({ selectedGame, achievements, sel
             </div>
             <div className="humanized-live-progress" aria-live="polite">
               <span>{currentActivity}</span>
-              <strong>{nextItem ? `Next unlock ${remainingLabel(nextUnlockAt)}` : (verificationItem ? verificationDetail : 'No upcoming achievement')}</strong>
+              <strong>{nextItem ? `Next unlock ${remainingLabel(nextUnlockAt, clockNow)}` : (verificationItem ? verificationDetail : 'No upcoming achievement')}</strong>
             </div>
             {scheduleTiming && (
               <p className="humanized-timing-summary">
@@ -349,7 +365,7 @@ export default function HumanizedSchedulePanel({ selectedGame, achievements, sel
                     <div className="humanized-timeline-title-row">
                       <h4>{item.name || item.id}</h4>
                       <time dateTime={Number.isFinite(item.verificationMeta?.nextVerificationAt || item.nextAttemptAt || item.scheduledAt) ? new Date(item.verificationMeta?.nextVerificationAt || item.nextAttemptAt || item.scheduledAt).toISOString() : undefined}>
-                        <Clock3 size={13} /> {item.status === 'verification-required' ? (item.verificationMeta?.exhausted ? 'Pending confirmation' : `Confirming in background ${remainingLabel(item.verificationMeta?.nextVerificationAt)}`) : `Scheduled ${remainingLabel(item.nextAttemptAt || item.scheduledAt)}`}
+                        <Clock3 size={13} /> {item.status === 'verification-required' ? (item.verificationMeta?.exhausted ? 'Pending confirmation' : `Confirming in background ${remainingLabel(item.verificationMeta?.nextVerificationAt, clockNow)}`) : `Scheduled ${remainingLabel(item.nextAttemptAt || item.scheduledAt, clockNow)}`}
                       </time>
                     </div>
                     <div className="humanized-timeline-meta">
