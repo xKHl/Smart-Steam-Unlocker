@@ -147,6 +147,7 @@ export default function Dashboard({ steamStatus, selectedGame, onSteamReconnect 
     ? selectedGame ? `Selected game: ${selectedGame.name}.` : 'Your Steam client is connected. Choose a game to begin.'
     : 'Connect to Steam to start managing your achievements.';
   const overviewError = overview.errorCode ? DATA_ERROR_COPY[overview.errorCode] || DATA_ERROR_COPY.FETCH_ERROR : null;
+  const openGameSelection = () => navigate('/library');
 
   return (
     <div className="page-container dashboard-page animate-fade-in">
@@ -161,7 +162,7 @@ export default function Dashboard({ steamStatus, selectedGame, onSteamReconnect 
           </div>
         </div>
         <div className="dashboard-hero-actions">
-          <button className="hero-cta" onClick={() => navigate(selectedGame ? '/achievements' : '/library')}>
+          <button className="hero-cta" onClick={() => selectedGame ? navigate('/achievements') : openGameSelection()}>
             {selectedGame ? 'Open Selected Game' : 'Browse Library'} <ChevronRight size={15} />
           </button>
           <button className="btn-secondary" onClick={() => navigate('/settings')}><Settings size={13} /> Settings</button>
@@ -200,16 +201,33 @@ export default function Dashboard({ steamStatus, selectedGame, onSteamReconnect 
         )}
 
         <div className="stats-grid dashboard-stats-grid">
-          {metrics.map(({ id, icon: Icon, label, value, sub, color }) => (
-            <article key={id} id={id} className="stat-card">
-              <div className={`stat-icon stat-icon--${color}`} aria-hidden="true"><Icon size={19} /></div>
-              <div>
-                <p className="stat-value" aria-label={`${label}: ${value}`}>{value}</p>
-                <p className="stat-label">{label}</p>
-                <p className="stat-sub">{sub}</p>
-              </div>
-            </article>
-          ))}
+          {metrics.map(({ id, icon: Icon, label, value, sub, color }) => {
+            const opensGameSelection = !selectedGame && (id === 'stat-unlocked' || id === 'stat-rate');
+            return (
+              <article
+                key={id}
+                id={id}
+                className={`stat-card${opensGameSelection ? ' stat-card-actionable' : ''}`}
+                onClick={opensGameSelection ? openGameSelection : undefined}
+                onKeyDown={opensGameSelection ? (event) => {
+                  if (event.key === 'Enter' || event.key === ' ') {
+                    event.preventDefault();
+                    openGameSelection();
+                  }
+                } : undefined}
+                role={opensGameSelection ? 'button' : undefined}
+                tabIndex={opensGameSelection ? 0 : undefined}
+                aria-label={opensGameSelection ? `Choose a game to view ${label.toLowerCase()}` : undefined}
+              >
+                <div className={`stat-icon stat-icon--${color}`} aria-hidden="true"><Icon size={19} /></div>
+                <div>
+                  <p className="stat-value" aria-label={`${label}: ${value}`}>{value}</p>
+                  <p className="stat-label">{label}</p>
+                  <p className="stat-sub">{sub}</p>
+                </div>
+              </article>
+            );
+          })}
         </div>
         {selectedGame && overview.achievementResult && !overview.achievementResult.success && overview.phase === 'ready' && (
           <p className="dashboard-inline-note">Achievement progress for {selectedGame.name} is unavailable. Library data remains up to date.</p>
@@ -235,7 +253,7 @@ export default function Dashboard({ steamStatus, selectedGame, onSteamReconnect 
             <>
               <p className="dashboard-current-game">No game selected</p>
               <p>Choose a game from your Steam library to view its achievement progress.</p>
-              <button className="btn-secondary" onClick={() => navigate('/library')}><BookOpen size={14} /> Browse Library</button>
+              <button className="btn-secondary" onClick={openGameSelection}><BookOpen size={14} /> Browse Library</button>
             </>
           )}
         </article>
@@ -246,8 +264,8 @@ export default function Dashboard({ steamStatus, selectedGame, onSteamReconnect 
             <div><p className="dashboard-eyebrow">Quick actions</p><h2>Keep moving</h2></div>
           </div>
           <div className="dashboard-action-list">
-            <button onClick={() => navigate('/library')}><BookOpen size={15} /><span><strong>Open Library</strong><small>Browse the games Steam has returned</small></span><ChevronRight size={15} /></button>
-            <button onClick={() => navigate(selectedGame ? '/achievements' : '/library')}><Trophy size={15} /><span><strong>{selectedGame ? 'Browse Achievements' : 'Choose a Game'}</strong><small>{selectedGame ? `View progress for ${selectedGame.name}` : 'Select a game to view achievements'}</small></span><ChevronRight size={15} /></button>
+            <button onClick={openGameSelection}><BookOpen size={15} /><span><strong>Open Library</strong><small>Browse the games Steam has returned</small></span><ChevronRight size={15} /></button>
+            <button onClick={() => selectedGame ? navigate('/achievements') : openGameSelection()}><Trophy size={15} /><span><strong>{selectedGame ? 'Browse Achievements' : 'Choose a Game'}</strong><small>{selectedGame ? `View progress for ${selectedGame.name}` : 'Select a game to view achievements'}</small></span><ChevronRight size={15} /></button>
             <button onClick={() => navigate('/settings')}><Settings size={15} /><span><strong>Steam Settings</strong><small>Manage connection and Web API access</small></span><ChevronRight size={15} /></button>
           </div>
         </article>
@@ -259,7 +277,7 @@ export default function Dashboard({ steamStatus, selectedGame, onSteamReconnect 
             <p className="dashboard-eyebrow">Your library</p>
             <h2 id="dashboard-library-snapshot-title"><BookOpen size={15} aria-hidden="true" /> Library Snapshot</h2>
           </div>
-          <button className="dashboard-refresh" onClick={() => navigate('/library')}>View library <ChevronRight size={13} /></button>
+          <button className="dashboard-refresh" onClick={openGameSelection}>View library <ChevronRight size={13} /></button>
         </div>
         {overview.phase === 'loading' ? (
           <div className="dashboard-snapshot-state"><Loader2 size={15} className="animate-spin" /> Loading library details…</div>
@@ -268,7 +286,7 @@ export default function Dashboard({ steamStatus, selectedGame, onSteamReconnect 
             {featuredGames.map((game) => {
               const played = Math.round((game.playtimeMinutes ?? 0) / 60);
               return (
-                <button key={game.appId} type="button" onClick={() => navigate('/library')}>
+                <button key={game.appId} type="button" onClick={openGameSelection}>
                   <span className="dashboard-snapshot-game-mark"><Gamepad2 size={14} /></span>
                   <span className="dashboard-snapshot-game-name">{game.name}</span>
                   <span className="dashboard-snapshot-game-meta">{played ? `${played.toLocaleString()}h played` : 'Not played yet'}</span>

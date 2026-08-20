@@ -260,9 +260,13 @@ textarea { user-select: text; }
   margin-top: 1px;
 }
 
+.sidebar-navigation-region {
+  flex: 0 0 auto;
+  min-height: 0;
+}
+
 .sidebar-nav {
   padding: 14px 10px;
-  flex: 1;
 }
 
 .nav-section-label {
@@ -331,6 +335,7 @@ textarea { user-select: text; }
 }
 
 .sidebar-footer {
+  flex-shrink: 0;
   padding: 12px;
   border-top: 1px solid var(--border);
 }
@@ -2077,7 +2082,7 @@ textarea { user-select: text; }
 @media (max-width: 760px) { .trading-page { padding: 20px; } .trading-page-header { flex-direction: column; } .trading-summary-grid { grid-template-columns: repeat(2, 1fr); } .trading-monitor-banner { align-items: flex-start; flex-direction: column; } }
 
 /* ── Product Ownership & Credits ─────────────────────────────────────────── */
-.sidebar-nav { min-height: 0; overflow-y: auto; }
+.sidebar-spacer { flex: 1 1 auto; min-height: 16px; }
 .sidebar-credit {
   flex-shrink: 0;
   margin: 0 10px 12px;
@@ -2155,8 +2160,22 @@ textarea { user-select: text; }
   .settings-about-links { grid-template-columns: 1fr; }
 }
 @media (max-height: 720px) {
+  .sidebar-navigation-region { flex: 1 1 auto; overflow-y: auto; }
+  .sidebar-spacer { flex: 0 1 0; min-height: 0; }
   .sidebar-credit { margin-bottom: 8px; padding: 9px; }
   .sidebar-credit-links { margin-top: 8px; }
   .sidebar-credit-copyright { display: none; }
   .sidebar-active-game { padding-bottom: 9px; }
+}
+
+/* Dashboard game-selection affordances */
+.stat-card-actionable { cursor: pointer; }
+.stat-card-actionable:hover,
+.stat-card-actionable:focus-visible {
+  border-color: rgba(167, 139, 250, 0.48);
+  background: rgba(124, 58, 237, 0.09);
+  outline: none;
+}
+.stat-card-actionable:focus-visible {
+  box-shadow: 0 0 0 2px rgba(167, 139, 250, 0.34);
 }

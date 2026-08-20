@@ -29,39 +29,43 @@ export default function Sidebar({ steamStatus, selectedGame, version }) {
         </div>
       </div>
 
-      {/* ── Navigation ───────────────────────────────────────────────────── */}
-      <nav className="sidebar-nav" aria-label="Main navigation">
-        <p className="nav-section-label">Navigation</p>
-        {NAV_LINKS.map(({ to, icon: Icon, label, id, end }) => (
-          <NavLink
-            key={id}
-            to={to}
-            end={end}
-            id={id}
-            className={({ isActive }) => `nav-link${isActive ? ' nav-link-active' : ''}`}
-          >
-            <Icon size={16} aria-hidden="true" />
-            <span>{label}</span>
-          </NavLink>
-        ))}
-      </nav>
+      <div className="sidebar-navigation-region">
+        {/* ── Navigation ───────────────────────────────────────────────────── */}
+        <nav className="sidebar-nav" aria-label="Main navigation">
+          <p className="nav-section-label">Navigation</p>
+          {NAV_LINKS.map(({ to, icon: Icon, label, id, end }) => (
+            <NavLink
+              key={id}
+              to={to}
+              end={end}
+              id={id}
+              className={({ isActive }) => `nav-link${isActive ? ' nav-link-active' : ''}`}
+            >
+              <Icon size={16} aria-hidden="true" />
+              <span>{label}</span>
+            </NavLink>
+          ))}
+        </nav>
 
-      {/* ── Selected Game ─────────────────────────────────────────────────── */}
-      {selectedGame && (
-        <div className="sidebar-active-game">
-          <p className="nav-section-label" style={{ paddingBottom: 8 }}>Selected Game</p>
-          <div className="active-game-card">
-            <img
-              src={selectedGame.headerImage}
-              alt={selectedGame.name}
-              className="active-game-image"
-              onError={(e) => (e.target.style.display = 'none')}
-            />
-            <p className="active-game-name" title={selectedGame.name}>{selectedGame.name}</p>
-            <p className="active-game-appid">AppID {selectedGame.appId}</p>
+        {/* ── Selected Game ───────────────────────────────────────────────── */}
+        {selectedGame && (
+          <div className="sidebar-active-game">
+            <p className="nav-section-label" style={{ paddingBottom: 8 }}>Selected Game</p>
+            <div className="active-game-card">
+              <img
+                src={selectedGame.headerImage}
+                alt={selectedGame.name}
+                className="active-game-image"
+                onError={(e) => (e.target.style.display = 'none')}
+              />
+              <p className="active-game-name" title={selectedGame.name}>{selectedGame.name}</p>
+              <p className="active-game-appid">AppID {selectedGame.appId}</p>
+            </div>
           </div>
-        </div>
-      )}
+        )}
+      </div>
+
+      <div className="sidebar-spacer" aria-hidden="true" />
 
       <div className="sidebar-credit" aria-label="Project ownership and author links">
         <div className="sidebar-credit-heading">
@@ -77,8 +81,6 @@ export default function Sidebar({ steamStatus, selectedGame, version }) {
         </div>
         <p className="sidebar-credit-copyright">© 2026 Khalid Alotaibi</p>
       </div>
-
-      <div style={{ flex: 1, minHeight: 10 }} />
 
       {/* ── Steam Status Footer ───────────────────────────────────────────── */}
       <div className="sidebar-footer">

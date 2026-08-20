@@ -111,9 +111,26 @@ test('Dashboard stays product-focused while Sidebar layout and existing navigati
   assert.match(sidebar, /nav-achievements/);
   assert.match(sidebar, /nav-trading-cards/);
   assert.match(sidebar, /nav-settings/);
-  assert.match(sidebar, /sidebar-footer/);
-  assert.match(styles, /\.sidebar-nav \{ min-height: 0; overflow-y: auto; \}/);
-  assert.match(styles, /\.sidebar-credit/);
-  assert.match(styles, /@media \(max-height: 720px\)/);
+  assert.match(sidebar, /sidebar-navigation-region/);
+  assert.match(sidebar, /sidebar-spacer/);
+  assert.match(sidebar, /sidebar-credit[\s\S]*?sidebar-footer/);
+  assert.match(styles, /\.sidebar-navigation-region \{\s*flex: 0 0 auto;/);
+  assert.doesNotMatch(styles, /\.sidebar-nav \{[^}]*overflow-y: auto/);
+  assert.match(styles, /@media \(max-height: 720px\) \{\s*\.sidebar-navigation-region \{ flex: 1 1 auto; overflow-y: auto;/);
+  assert.match(styles, /\.sidebar-spacer \{ flex: 1 1 auto;/);
   assert.match(styles, /\.settings-about-links/);
+});
+
+test('Dashboard game-selection actions route through the existing Library selection flow', () => {
+  const dashboard = source('src/pages/Dashboard.jsx');
+  const library = source('src/pages/Library.jsx');
+  const app = source('src/App.jsx');
+
+  assert.match(dashboard, /const openGameSelection = \(\) => navigate\('\/library'\);/);
+  assert.match(dashboard, /onClick=\{openGameSelection\}/);
+  assert.match(dashboard, /const opensGameSelection = !selectedGame && \(id === 'stat-unlocked' \|\| id === 'stat-rate'\);/);
+  assert.match(dashboard, /role=\{opensGameSelection \? 'button' : undefined\}/);
+  assert.match(library, /onClick=\{\(\) => onGameSelect\(game\)\}/);
+  assert.match(app, /<Route path="\/library"[\s\S]*?onGameSelect=\{handleGameSelect\}/);
+  assert.match(app, /setSelectedGame\(game\);[\s\S]*?navigate\('\/achievements'\);/);
 });
