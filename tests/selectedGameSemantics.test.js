@@ -134,3 +134,33 @@ test('Dashboard game-selection actions route through the existing Library select
   assert.match(app, /<Route path="\/library"[\s\S]*?onGameSelect=\{handleGameSelect\}/);
   assert.match(app, /setSelectedGame\(game\);[\s\S]*?navigate\('\/achievements'\);/);
 });
+
+test('Library Browse Achievements click surfaces a visible error instead of silently failing', () => {
+  const app = source('src/App.jsx');
+  const library = source('src/pages/Library.jsx');
+  const styles = source('src/index.css');
+
+  // handleGameSelect must expose the error through state, not only console.error
+  assert.match(app, /setSwitchGameError\(err\?\.message/);
+  assert.match(app, /setSwitchGameError\(null\)/);
+
+  // Library route must receive the error state and a dismiss callback
+  assert.match(app, /switchError=\{switchGameError\}/);
+  assert.match(app, /onDismissSwitchError=\{/);
+
+  // Library must accept and render the error
+  assert.match(library, /switchError, onDismissSwitchError/);
+  assert.match(library, /library-switch-error/);
+  assert.match(library, /role="alert"/);
+  assert.match(library, /aria-live="assertive"/);
+  assert.match(library, /onDismissSwitchError/);
+
+  // The error banner must have CSS
+  assert.match(styles, /\.library-switch-error \{/);
+  assert.match(styles, /\.library-switch-error-dismiss/);
+
+  // The existing selection path must be unchanged
+  assert.match(library, /onClick=\{\(\) => onGameSelect\(game\)\}/);
+  assert.match(app, /<Route path="\/library"[\s\S]*?onGameSelect=\{handleGameSelect\}/);
+  assert.match(app, /setSelectedGame\(game\);[\s\S]*?navigate\('\/achievements'\);/);
+});

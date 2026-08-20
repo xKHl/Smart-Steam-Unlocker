@@ -45,8 +45,9 @@ function AppContent() {
 
   const [steamStatus,  setSteamStatus]  = useState({ connected: false, playerName: null, steamId: null });
   const [selectedGame, setSelectedGame] = useState(null);
-  const [isSwitching,  setIsSwitching]  = useState(false);
-  const [appVersion,   setAppVersion]   = useState('');
+  const [isSwitching,      setIsSwitching]      = useState(false);
+  const [switchGameError,  setSwitchGameError]  = useState(null);
+  const [appVersion,       setAppVersion]       = useState('');
 
   // ── Opt-in interaction diagnostics ─────────────────────────────────────
   useEffect(() => {
@@ -130,6 +131,7 @@ function AppContent() {
 
   // ── Game Selection Handler ───────────────────────────────────────────────
   const handleGameSelect = useCallback(async (game) => {
+    setSwitchGameError(null);
     setIsSwitching(true);
     try {
       const result = await window.steamAPI?.steam.switchGame(game.appId, game.name, game.headerImage);
@@ -138,8 +140,11 @@ function AppContent() {
       navigate('/achievements');
     } catch (err) {
       console.error('[App] switchGame failed:', err);
-      // Keep the authoritative previously selected game visible when the main
-      // process rejects a conflicting schedule or runtime-context switch.
+      // Surface the error to the Library page so the user receives actionable
+      // feedback instead of a silent dead click. The previously selected game
+      // is kept as the authoritative selection when the main process rejects
+      // a conflicting schedule or runtime-context switch.
+      setSwitchGameError(err?.message ?? 'Could not switch game. Please try again.');
     } finally {
       setIsSwitching(false);
     }
@@ -168,7 +173,7 @@ function AppContent() {
           <main className="main-content">
             <Routes>
               <Route path="/"             element={<Dashboard    steamStatus={steamStatus} selectedGame={selectedGame} onSteamReconnect={handleSteamReconnect} />} />
-              <Route path="/library"      element={<Library      selectedGame={selectedGame} onGameSelect={handleGameSelect} />} />
+              <Route path="/library"      element={<Library      selectedGame={selectedGame} onGameSelect={handleGameSelect} switchError={switchGameError} onDismissSwitchError={() => setSwitchGameError(null)} />} />
               <Route path="/achievements" element={<Achievements selectedGame={selectedGame} onChangeGame={() => navigate('/library')} />} />
               <Route path="/trading-cards" element={<TradingCards />} />
               <Route path="/settings"     element={<Settings />} />

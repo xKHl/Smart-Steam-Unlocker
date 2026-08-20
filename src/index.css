@@ -886,6 +886,37 @@ textarea { user-select: text; }
   font-size: 13px;
 }
 
+/* Inline error banner shown when game switching is blocked (e.g. active schedule conflict) */
+.library-switch-error {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 14px;
+  margin-bottom: 14px;
+  border-radius: var(--radius-md);
+  background: rgba(251, 191, 36, 0.08);
+  border: 1px solid rgba(251, 191, 36, 0.28);
+  color: #fbbf24;
+  font-size: 12.5px;
+  line-height: 1.4;
+}
+.library-switch-error span {
+  flex: 1;
+  color: var(--text-primary);
+}
+.library-switch-error-dismiss {
+  background: none;
+  border: none;
+  padding: 2px;
+  cursor: pointer;
+  color: var(--text-muted);
+  display: flex;
+  align-items: center;
+  border-radius: var(--radius-sm);
+  transition: color var(--transition);
+}
+.library-switch-error-dismiss:hover { color: #fbbf24; }
+
 .library-grid {
   display: grid;
   grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));

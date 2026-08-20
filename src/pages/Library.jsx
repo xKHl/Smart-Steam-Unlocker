@@ -2,7 +2,7 @@ import React, { useState, useEffect, useMemo, useCallback } from 'react';
 import {
   Search, AlertCircle, Loader2, RefreshCw, Settings,
   ChevronRight, SlidersHorizontal, Clock, Trophy, Gamepad2,
-  Library as LibraryIcon,
+  Library as LibraryIcon, XCircle,
 } from 'lucide-react';
 import GameCard from '../components/GameCard';
 import { useNavigate } from 'react-router-dom';
@@ -80,7 +80,7 @@ const ERROR_COPY = {
  *   error       → contextual error card
  *   success     → responsive game grid with search + sort
  */
-export default function Library({ selectedGame, onGameSelect }) {
+export default function Library({ selectedGame, onGameSelect, switchError, onDismissSwitchError }) {
   const navigate = useNavigate();
 
   const [games,     setGames]     = useState([]);
@@ -250,6 +250,22 @@ export default function Library({ selectedGame, onGameSelect }) {
           </div>
         )}
       </div>
+
+      {/* ── Game-switch error banner ─────────────────────────────────────── */}
+      {switchError && (
+        <div className="library-switch-error" role="alert" aria-live="assertive">
+          <AlertCircle size={15} aria-hidden="true" />
+          <span>{switchError}</span>
+          <button
+            type="button"
+            className="library-switch-error-dismiss"
+            onClick={onDismissSwitchError}
+            aria-label="Dismiss error"
+          >
+            <XCircle size={15} />
+          </button>
+        </div>
+      )}
 
       {/* ── Stats Strip ───────────────────────────────────────────────────── */}
       {!loading && !errorCode && games.length > 0 && (
