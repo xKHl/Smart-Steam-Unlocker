@@ -50,8 +50,11 @@ test('selected-game and activity labels remain truthful and independent', () => 
   assert.match(dashboard, /Selected game: \$\{selectedGame\.name\}\./);
   assert.match(dashboard, /dashboard-eyebrow">Selected game/);
   assert.match(dashboard, /This game was selected from your library\./);
-  assert.match(dashboard, /Last Activity/);
-  assert.match(dashboard, /Steam library data has no reliable last-played timestamp/);
+  assert.match(dashboard, /Recent Activity/);
+  assert.match(dashboard, /playtime2Weeks/);
+  assert.match(dashboard, /No recent activity reported by Steam/);
+  assert.doesNotMatch(dashboard, /label: 'Last Activity'/);
+  assert.doesNotMatch(dashboard, /Steam library data has no reliable last-played timestamp/);
   assert.match(sidebar, />Selected Game</);
   assert.match(card, /aria-label="Selected game"/);
   assert.match(card, />\s*Selected\s*</);

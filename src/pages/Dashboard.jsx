@@ -127,9 +127,24 @@ export default function Dashboard({ steamStatus, selectedGame, onSteamReconnect 
         sub: hasCurrentGameData ? total ? `${unlocked} of ${total} unlocked` : 'This game has no achievement data' : 'For the selected game',
       },
       {
-        id: 'stat-activity', icon: TrendingUp, label: 'Last Activity', color: 'violet',
-        value: 'Unavailable',
-        sub: 'Steam library data has no reliable last-played timestamp',
+        id: 'stat-activity', icon: TrendingUp, label: 'Recent Activity', color: 'violet',
+        value: (() => {
+          if (!selectedGame) return metricStateValue({ phase, value: 'Select a game', unavailableValue: 'Unavailable' });
+          const gameData = overview.games.find(g => String(g.appId) === String(selectedGame.appId));
+          const mins = gameData?.playtime2Weeks ?? 0;
+          if (mins <= 0) return 'None reported';
+          const hrs = Math.floor(mins / 60);
+          const rem = mins % 60;
+          return hrs > 0 ? `${hrs}h ${rem}m` : `${rem}m`;
+        })(),
+        sub: (() => {
+          if (!selectedGame) return 'Select a game to view recent activity';
+          const gameData = overview.games.find(g => String(g.appId) === String(selectedGame.appId));
+          const mins = gameData?.playtime2Weeks ?? 0;
+          return mins > 0
+            ? `Played in the last 2 weeks · ${selectedGame.name}`
+            : 'No recent activity reported by Steam';
+        })(),
       },
     ];
   }, [overview, selectedGame]);

@@ -425,33 +425,70 @@ async function unlockAchievement(achievementId, expectedAppId = null) {
   let errorCode = null;
 
   try {
-    // 1. Initialize Steamworks for this single operation
+    // 1. Initialize Steamworks for this single operation.
+    //    steamworks.init() calls request_current_stats() internally but returns
+    //    before the UserStatsReceived callback fires (the 30fps pump delivers it
+    //    asynchronously). We must not call activate() until the stats cache is
+    //    populated — otherwise SetAchievement returns false (ACTIVATION_REJECTED).
     const steamworks = require('steamworks.js');
     localClient = steamworks.init(targetAppId);
     // We don't touch module-level `client` here — we use a local reference
-    // so our finally block can clean up even if the module state was mucked with
+    // so our finally block can clean up even if the module state was mucked with.
 
-    // 2. Perform the unlock
-    const activated = localClient.achievement.activate(achievementId);
-    if (activated) {
-      activationMayHaveApplied = true;
-      // steamworks.js exposes achievement.activate() separately from the
-      // supported stats.store() commit API. achievement.store() does not exist
-      // in the installed client surface and must never be called here.
-      const stored = localClient.stats.store();
-      if (!stored) throw new Error('Steam stats store was rejected after achievement activation.');
-      // console.log(`[SteamManager] ✓ Unlocked: ${achievementId}`);
-      success = true;
-
-      // Preserve Instant mode's immediate refresh after the valid local store.
-      // Humanized mode supplies expectedAppId and deliberately waits for the
-      // independent verifier before publishing a renderer/cache unlock update.
-      if (!expectedAppId) publishAchievementUnlocked(targetAppId, achievementId);
-    } else {
-      errorMsg = 'Activation returned false';
-      errorCode = 'ACTIVATION_REJECTED';
-      // console.error(`[SteamManager] ✗ Activate returned false for: ${achievementId}`);
+    // 2. Wait for the stats cache to be ready.
+    //    steamworks.js 0.3.2 does not expose UserStatsReceived via callback.register.
+    //    The reliable readiness signal is achievement.isActivated(): it returns a
+    //    boolean (true/false) once the stats cache is populated, and throws or
+    //    returns undefined before the cache is ready. We poll with async yields so
+    //    the 30fps callback pump (setInterval at 1000/30 ms) can fire between ticks.
+    //    Hard timeout: 3 seconds — sufficient for any normal Steam client state.
+    const STATS_READY_TIMEOUT_MS = 3000;
+    const STATS_READY_POLL_INTERVAL_MS = 20; // one pump tick is ~33ms; poll faster
+    const statsReadyStart = Date.now();
+    let statsReady = false;
+    while (!statsReady) {
+      try {
+        const probeResult = localClient.achievement.isActivated(achievementId);
+        // isActivated returns a boolean (true = already unlocked, false = locked).
+        // Either boolean value means the stats cache is populated and activate() is safe.
+        if (typeof probeResult === 'boolean') {
+          statsReady = true;
+          break;
+        }
+      } catch (_probeErr) {
+        // Stats cache not yet populated — continue polling.
+      }
+      if (Date.now() - statsReadyStart >= STATS_READY_TIMEOUT_MS) {
+        errorMsg = 'Steam stats cache was not ready within the allowed window.';
+        errorCode = 'STATS_NOT_READY';
+        break;
+      }
+      // Yield to the event loop so the 30fps callback pump can fire.
+      await new Promise(resolve => setTimeout(resolve, STATS_READY_POLL_INTERVAL_MS));
     }
+
+    if (statsReady) {
+      // 3. Perform the unlock.
+      //    achievement.activate() in steamworks.js calls SetAchievement + StoreStats
+      //    internally in a single atomic operation (confirmed from Rust source).
+      //    No separate stats.store() call is needed — calling it again would be a
+      //    redundant double-store that adds an unnecessary network round-trip.
+      const activated = localClient.achievement.activate(achievementId);
+      if (activated) {
+        activationMayHaveApplied = true;
+        // console.log(`[SteamManager] ✓ Unlocked: ${achievementId}`);
+        success = true;
+        // Preserve Instant mode's immediate refresh after the valid local store.
+        // Humanized mode supplies expectedAppId and deliberately waits for the
+        // independent verifier before publishing a renderer/cache unlock update.
+        if (!expectedAppId) publishAchievementUnlocked(targetAppId, achievementId);
+      } else {
+        errorMsg = 'Activation returned false';
+        errorCode = 'ACTIVATION_REJECTED';
+        // console.error(`[SteamManager] ✗ Activate returned false for: ${achievementId}`);
+      }
+    }
+    // If !statsReady, errorMsg/errorCode are already set above; fall through to finally.
   } catch (err) {
     errorMsg = err.message;
     errorCode = activationMayHaveApplied ? 'OPERATION_UNCERTAIN' : 'STEAM_EXECUTION_FAILED';
