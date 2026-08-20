@@ -41,9 +41,14 @@ function invalidateLibraryCache() {
 
 function assertGameSwitchAllowed(appId) {
   const schedule = humanizedService.getStatus()?.schedule;
-  const hasNonterminalItem = schedule?.items?.some((item) => !['completed', 'failed'].includes(item.status));
-  if (hasNonterminalItem && Number(schedule.appId) !== Number(appId)) {
-    const error = new Error('Pause and clear the active Humanized schedule before selecting another game.');
+  // Only block game switching when the scheduler is actively executing items
+  // (state === 'running'). A paused, completed, or failed schedule — including
+  // schedules restored from persistence at startup, which recoverSchedule always
+  // downgrades from 'running' to 'paused' — must not prevent normal Library
+  // navigation. The user can resume or clear a paused schedule at any time.
+  const isActivelyRunning = schedule?.state === 'running';
+  if (isActivelyRunning && Number(schedule.appId) !== Number(appId)) {
+    const error = new Error('Stop the active Humanized schedule before selecting another game.');
     error.code = 'ACTIVE_SCHEDULE_APP_ID_CONFLICT';
     throw error;
   }

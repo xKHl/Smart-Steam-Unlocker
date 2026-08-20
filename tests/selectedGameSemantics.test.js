@@ -186,3 +186,25 @@ test('Library Browse Achievements click surfaces a visible error instead of sile
   assert.match(app, /<Route path="\/library"[\s\S]*?onGameSelect=\{handleGameSelect\}/);
   assert.match(app, /setSelectedGame\(game\);[\s\S]*?navigate\('\/achievements'\);/);
 });
+
+test('assertGameSwitchAllowed only blocks on a running schedule, not on paused or stale persisted schedules', () => {
+  const handlers = source('electron/ipc/handlers.js');
+
+  // The guard must check schedule.state === 'running', not item-level statuses.
+  // This ensures that paused schedules restored at startup do not block Library.
+  assert.match(handlers, /schedule\?\.state === 'running'/);
+  assert.match(handlers, /isActivelyRunning/);
+
+  // The old item-level check (hasNonterminalItem) must no longer be the gate.
+  assert.doesNotMatch(handlers, /hasNonterminalItem/);
+
+  // The guard must still throw ACTIVE_SCHEDULE_APP_ID_CONFLICT for running schedules.
+  assert.match(handlers, /ACTIVE_SCHEDULE_APP_ID_CONFLICT/);
+  assert.match(handlers, /Stop the active Humanized schedule before selecting another game/);
+
+  // recoverSchedule must downgrade 'running' -> 'paused' on restart (no auto-resume
+  // without a pending verification), confirming stale schedules are always paused.
+  const engine = source('electron/humanized/schedulerEngine.js');
+  assert.match(engine, /recovered\.state = SCHEDULE_STATE\.PAUSED/);
+  assert.match(engine, /recovered\.state = SCHEDULE_STATE\.RUNNING/);
+});
