@@ -927,6 +927,16 @@ textarea { user-select: text; }
 /* Game Card                                                                    */
 /* ─────────────────────────────────────────────────────────────────────────── */
 .game-card {
+  /* Native button reset — preserves visual identity while ensuring reliable
+     click handling in Electron's Chromium renderer. */
+  -webkit-appearance: none;
+  appearance: none;
+  font: inherit;
+  text-align: left;
+  padding: 0;
+  width: 100%;
+  display: block;
+  /* Card visual styles */
   background: var(--bg-card);
   border: 1px solid var(--border);
   border-radius: var(--radius-lg);

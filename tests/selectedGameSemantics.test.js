@@ -58,6 +58,28 @@ test('selected-game and activity labels remain truthful and independent', () => 
   assert.doesNotMatch(steamManager, /rtime_last_played/);
 });
 
+test('GameCard uses a native button element for reliable click handling in Electron', () => {
+  const card = source('src/components/GameCard.jsx');
+  const styles = source('src/index.css');
+
+  // Must be a native button, not a div with role=button
+  assert.match(card, /<button/);
+  assert.match(card, /type="button"/);
+  assert.doesNotMatch(card, /role="button"/);
+
+  // onClick must be wired directly to the button
+  assert.match(card, /onClick=\{onClick\}/);
+
+  // CSS must reset native button styles so the card looks correct
+  assert.match(styles, /\.game-card \{[\s\S]*?-webkit-appearance: none/);
+  assert.match(styles, /\.game-card \{[\s\S]*?padding: 0/);
+  assert.match(styles, /\.game-card \{[\s\S]*?width: 100%/);
+
+  // Library must still wire onClick to onGameSelect
+  const library = source('src/pages/Library.jsx');
+  assert.match(library, /onClick=\{\(\) => onGameSelect\(game\)\}/);
+});
+
 test('the protected route-restoration guard remains one-time only', () => {
   const app = source('src/App.jsx');
   assert.match(app, /const initialStateApplied = useRef\(false\);/);
