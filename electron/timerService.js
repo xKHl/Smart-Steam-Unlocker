@@ -2,28 +2,33 @@ const { BrowserWindow } = require('electron');
 const settingsStore = require('./settingsStore');
 const steamManager = require('./steamManager');
 const { operationCoordinator } = require('./operationCoordinator');
+const {
+  DEFAULT_INSTANT_VERIFICATION_POLICY,
+  advancePendingVerification,
+  createPendingVerification,
+} = require('./instantVerificationPolicy');
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Timer State
 // ─────────────────────────────────────────────────────────────────────────────
 
-let queue = []; // Array of achievement objects: { id, name, ... }
+let queue = [];
 let isActive = false;
-let currentCountdown = 0; // seconds
+let currentCountdown = 0;
 let baseMultiplier = 1;
 let varianceMins = 0;
 let fixedMins = null;
 let totalInQueue = 0;
 let unlockedCount = 0;
-// Last user-visible Instant execution state. A failed or unverified item remains
-// in the queue; it must never silently disappear from the renderer.
 let lastOutcome = null;
+// Immutable evidence that native Steamworks accepted an activation but the
+// authoritative Web API has not yet confirmed it. While present, the timer can
+// only read/verify this achievement; it cannot activate it again.
+let pendingVerification = null;
+// Invalidates an in-flight read when Stop, Resume, Clear, or a manual recheck
+// changes the intended verification state before that read returns.
+let verificationGeneration = 0;
 let tickInterval = null;
-
-// Guard: prevents concurrent unlockNext() calls from overlapping.
-// If the previous native Steamworks call is still in-flight, we must not
-// fire another one. Without this guard a slow/stalled unlock can trigger
-// a second (and third…) unlock on subsequent ticks.
 let isUnlocking = false;
 let activeAppId = null;
 let leaseOwnerId = null;
@@ -55,32 +60,38 @@ function synchronizeQueueLeases(nextQueue = queue, nextAppId = activeAppId, next
   leaseOwnerId = nextOwnerId;
 }
 
-// ─────────────────────────────────────────────────────────────────────────────
-
 function init() {
   const savedState = settingsStore.get('timerState');
-  if (savedState) {
-    const status = steamManager.getStatus();
-    const selectedAppId = resolveAppId() ?? status.currentAppId;
-    // Only restore if the selected game matches the saved queue.
-    if (savedState.appId === selectedAppId) {
-      queue = savedState.queue || [];
-      activeAppId = savedState.appId;
-      leaseOwnerId = savedState.leaseOwnerId || ownerFor(activeAppId);
-      baseMultiplier = savedState.baseMultiplier ?? savedState.baseMins ?? 1;
-      varianceMins = savedState.varianceMins || 0;
-      fixedMins = savedState.fixedMins || null;
-      currentCountdown = savedState.currentCountdown || 0;
-      totalInQueue = savedState.totalInQueue || 0;
-      unlockedCount = savedState.unlockedCount || 0;
-      lastOutcome = savedState.lastOutcome || null;
-      isActive = false; // Always start paused on app boot
-      synchronizeQueueLeases();
-      // console.log(`[TimerService] Restored queue for AppID ${savedState.appId}.`);
-    } else {
-      settingsStore.delete('timerState');
-    }
+  if (!savedState) return;
+
+  const status = steamManager.getStatus();
+  const selectedAppId = resolveAppId() ?? status.currentAppId;
+  if (savedState.appId !== selectedAppId) {
+    settingsStore.delete('timerState');
+    return;
   }
+
+  queue = savedState.queue || [];
+  activeAppId = savedState.appId;
+  leaseOwnerId = savedState.leaseOwnerId || ownerFor(activeAppId);
+  baseMultiplier = savedState.baseMultiplier ?? savedState.baseMins ?? 1;
+  varianceMins = savedState.varianceMins || 0;
+  fixedMins = savedState.fixedMins || null;
+  currentCountdown = savedState.currentCountdown || 0;
+  totalInQueue = savedState.totalInQueue || 0;
+  unlockedCount = savedState.unlockedCount || 0;
+  lastOutcome = savedState.lastOutcome || null;
+  pendingVerification = savedState.pendingVerification || null;
+
+  // Existing queued execution still restores paused. An already accepted
+  // activation is different: resuming its read-only confirmation loop cannot
+  // duplicate an external write and is necessary for restart recovery.
+  isActive = Boolean(pendingVerification?.autoContinue && queue.length > 0);
+  if (isActive) {
+    setVerificationCountdown();
+    startTickLoop();
+  }
+  synchronizeQueueLeases();
 }
 
 function saveState() {
@@ -95,17 +106,14 @@ function saveState() {
     totalInQueue,
     unlockedCount,
     lastOutcome,
+    pendingVerification,
   });
 }
 
 function emitUpdate() {
   const status = getStatus();
-  const windows = BrowserWindow.getAllWindows();
-  windows.forEach(win => {
-    // Only send if the window isn't destroyed
-    if (!win.isDestroyed()) {
-      win.webContents.send('timer:update', status);
-    }
+  BrowserWindow.getAllWindows().forEach((win) => {
+    if (!win.isDestroyed()) win.webContents.send('timer:update', status);
   });
 }
 
@@ -120,62 +128,179 @@ function getStatus() {
     totalInQueue,
     unlockedCount,
     lastOutcome,
+    pendingVerification,
   };
 }
 
-// ─────────────────────────────────────────────────────────────────────────────
-// Core Logic
-// ─────────────────────────────────────────────────────────────────────────────
-
 function calculateNextDelay() {
   if (queue.length === 0) return 0;
-  
-  if (fixedMins !== null) {
-    // Manual Override completely bypasses variance and smart math
-    return Math.max(1, Math.floor(fixedMins * 60));
-  }
-  
+  if (fixedMins !== null) return Math.max(1, Math.floor(fixedMins * 60));
+
   const achievement = queue[0];
   const percent = typeof achievement.globalPercent === 'number' ? achievement.globalPercent : 50;
-  
-  // Base rarity delay (in minutes): 
-  // 100% (common) -> 5 mins. 0% (rare) -> 60 mins.
   const baseRarityMins = 5 + ((100 - percent) / 100) * 55;
-  
-  // Scale by the user-defined multiplier
-  const totalMinsScaled = baseRarityMins * baseMultiplier;
-  
-  // Add random variance
-  const randomVariance = Math.random() * varianceMins;
-  
-  const finalMins = totalMinsScaled + randomVariance;
-  return Math.max(1, Math.floor(finalMins * 60)); // Convert to seconds, minimum 1 second
+  return Math.max(1, Math.floor((baseRarityMins * baseMultiplier + Math.random() * varianceMins) * 60));
 }
 
-/**
- * Unlocks the first item in the queue, then either:
- *   • arms the next countdown and ensures the tick loop is running, or
- *   • stops the queue if nothing remains.
- *
- * Critical invariants:
- *   1. isUnlocking is ALWAYS released in the finally block.
- *   2. The tick interval is verified/restarted after a successful unlock so a
- *      previous hang that cleared tickInterval never permanently halts the queue.
- */
-async function unlockNext() {
-  // Concurrency guard — never allow two unlocks in flight simultaneously
-  if (isUnlocking) {
-    // console.warn('[TimerService] unlockNext() called while already unlocking — skipping tick.');
+function setVerificationCountdown(now = Date.now()) {
+  if (!pendingVerification?.nextVerificationAt) {
+    currentCountdown = 0;
     return;
   }
+  currentCountdown = Math.max(0, Math.ceil((pendingVerification.nextVerificationAt - now) / 1_000));
+}
 
+function verificationOutcomeFor(transition, achievement) {
+  const { pending } = transition;
+  const result = pending.lastResult || {};
+  if (transition.state === 'verified') {
+    return {
+      state: 'verified',
+      activation: 'accepted',
+      verification: 'confirmed',
+      achievementId: achievement.id,
+      message: `Steam remotely verified ${achievement.name || achievement.id} as unlocked.`,
+      errorCode: null,
+    };
+  }
+  if (transition.state === 'pending') {
+    if (result.kind === 'not-observed') {
+      return {
+        state: 'verification-pending',
+        activation: 'accepted',
+        verification: 'pending',
+        achievementId: achievement.id,
+        message: 'Steam accepted activation, but the Web API has not observed the unlock yet. Background verification will continue without another activation.',
+        errorCode: 'CONFIRMATION_PENDING',
+      };
+    }
+    return {
+      state: 'verification-pending',
+      activation: 'accepted',
+      verification: 'unavailable',
+      achievementId: achievement.id,
+      message: `Steam accepted activation, but remote verification is temporarily unavailable${result.error ? `: ${result.error}` : ''}. Background verification will continue without another activation.`,
+      errorCode: result.errorCode || 'VERIFICATION_UNAVAILABLE',
+    };
+  }
+  return {
+    state: 'verification-needs-attention',
+    activation: 'accepted',
+    verification: result.kind === 'not-observed' ? 'not-observed' : 'unavailable',
+    achievementId: achievement.id,
+    message: result.kind === 'not-observed'
+      ? 'Steam accepted activation, but the bounded confirmation window ended before the Web API reported the unlock. The item remains queued; use Recheck when Steam data is available.'
+      : `Steam accepted activation, but remote verification needs attention${result.error ? `: ${result.error}` : ''}. The item remains queued; use Recheck after correcting Steam access.`,
+    errorCode: result.errorCode || 'VERIFICATION_HORIZON_EXHAUSTED',
+  };
+}
+
+function completeVerifiedAchievement(achievement) {
+  steamManager.confirmVerifiedAchievement(activeAppId, achievement.id);
+  queue.shift();
+  unlockedCount += 1;
+  pendingVerification = null;
+  synchronizeQueueLeases();
+
+  if (queue.length > 0 && isActive) {
+    currentCountdown = calculateNextDelay();
+    saveState();
+    emitUpdate();
+    if (!tickInterval) startTickLoop();
+    return;
+  }
+  stopQueue();
+}
+
+async function verifyPendingActivation({ lockAlreadyHeld = false } = {}) {
+  if (!pendingVerification || queue.length === 0) return getStatus();
+  if (pendingVerification.achievementId !== queue[0].id) {
+    lastOutcome = {
+      state: 'verification-needs-attention',
+      activation: 'accepted',
+      verification: 'context-invalid',
+      achievementId: pendingVerification.achievementId,
+      message: 'The queued achievement no longer matches the pending Steam confirmation context. The item remains queued for review.',
+      errorCode: 'VERIFICATION_CONTEXT_MISMATCH',
+    };
+    pendingVerification.autoContinue = false;
+    pendingVerification.exhausted = true;
+    pendingVerification.nextVerificationAt = null;
+    stopQueue();
+    return getStatus();
+  }
+  if (!activeAppId || String(resolveAppId()) !== String(activeAppId)) {
+    lastOutcome = {
+      state: 'verification-needs-attention',
+      activation: 'accepted',
+      verification: 'context-invalid',
+      achievementId: pendingVerification.achievementId,
+      message: 'The selected Steam game no longer matches the pending confirmation. The item remains queued for review.',
+      errorCode: 'APP_ID_MISMATCH',
+    };
+    pendingVerification.autoContinue = false;
+    pendingVerification.exhausted = true;
+    pendingVerification.nextVerificationAt = null;
+    stopQueue();
+    return getStatus();
+  }
+  if (isUnlocking && !lockAlreadyHeld) return getStatus();
+
+  if (!lockAlreadyHeld) isUnlocking = true;
+  const expectedVerificationGeneration = verificationGeneration;
+  try {
+    let verification;
+    try {
+      verification = await steamManager.getAchievementVerification(activeAppId, pendingVerification.achievementId);
+    } catch (error) {
+      verification = {
+        success: false,
+        errorCode: 'VERIFICATION_EXCEPTION',
+        error: error instanceof Error ? error.message : String(error),
+      };
+    }
+
+    // Pause/Clear/Resume may have changed state while the Web API was in
+    // flight. Ignore this stale response rather than reactivating the queue.
+    if (expectedVerificationGeneration !== verificationGeneration) return getStatus();
+
+    const transition = advancePendingVerification({
+      pending: pendingVerification,
+      result: verification,
+      now: Date.now(),
+      policy: DEFAULT_INSTANT_VERIFICATION_POLICY,
+    });
+    pendingVerification = transition.pending;
+    lastOutcome = verificationOutcomeFor(transition, queue[0]);
+
+    if (transition.state === 'verified') {
+      completeVerifiedAchievement(queue[0]);
+    } else if (transition.state === 'pending') {
+      isActive = true;
+      setVerificationCountdown();
+      synchronizeQueueLeases();
+      saveState();
+      emitUpdate();
+      if (!tickInterval) startTickLoop();
+    } else {
+      stopQueue();
+    }
+    return getStatus();
+  } finally {
+    if (!lockAlreadyHeld) isUnlocking = false;
+  }
+}
+
+async function unlockNext() {
+  if (isUnlocking) return;
   if (!isActive || queue.length === 0) {
     stopQueue();
     return;
   }
-
-  // The queued lease is App-ID bound. Never let mutable selected-game state
-  // redirect an existing Instant operation to another application.
+  if (pendingVerification?.autoContinue) {
+    await verifyPendingActivation();
+    return;
+  }
   if (!activeAppId || String(resolveAppId()) !== String(activeAppId)) {
     stopQueue();
     return;
@@ -183,104 +308,68 @@ async function unlockNext() {
 
   isUnlocking = true;
   const achievement = queue[0];
-  // console.log(`[TimerService] Unlocking "${achievement.name || achievement.id}" …`);
-
-  let result;
   try {
-    result = await steamManager.unlockAchievement(achievement.id, activeAppId);
-  } catch (err) {
-    // steamManager should never throw (it catches internally), but be safe
-    result = { success: false, achievementId: achievement.id, error: err.message };
-  }
-
-  try {
-  if (result.success) {
-    // Native activation only confirms that steamworks accepted the call. Use the
-    // established read-only verifier before publishing the renderer/cache update.
-    let verification;
+    let result;
     try {
-      verification = await steamManager.getAchievementVerification(activeAppId, achievement.id);
+      result = await steamManager.unlockAchievement(achievement.id, activeAppId);
     } catch (error) {
-      verification = { success: false, errorCode: 'VERIFICATION_EXCEPTION', error: error instanceof Error ? error.message : String(error) };
+      result = { success: false, achievementId: achievement.id, error: error instanceof Error ? error.message : String(error) };
     }
 
-    if (verification?.success && verification.unlocked) {
-      steamManager.confirmVerifiedAchievement(activeAppId, achievement.id);
-      queue.shift(); // Remove only after remote Steam confirmation.
-      unlockedCount++;
-      lastOutcome = {
-        state: 'verified',
+    if (result?.success || result?.operationMayHaveApplied) {
+      // An accepted or uncertain post-activation result becomes a verification
+      // barrier. No retry activation can occur while this evidence exists.
+      pendingVerification = createPendingVerification({
         achievementId: achievement.id,
-        message: `Steam remotely verified ${achievement.name || achievement.id} as unlocked.`,
-        errorCode: null,
-      };
-      synchronizeQueueLeases(); // Completed items deterministically release their lease.
-
-      if (queue.length > 0 && isActive) {
-        currentCountdown = calculateNextDelay();
-        saveState();
-        emitUpdate();
-        if (!tickInterval) startTickLoop();
-      } else {
-        stopQueue();
-      }
-    } else {
-      // Activation may have reached Steam, but there is no remote confirmation.
-      // Keep the item visible and paused instead of consuming it as a success.
+        now: Date.now(),
+        policy: DEFAULT_INSTANT_VERIFICATION_POLICY,
+      });
       lastOutcome = {
         state: 'verification-pending',
+        activation: result?.success ? 'accepted' : 'uncertain',
+        verification: 'pending',
         achievementId: achievement.id,
-        message: verification?.success
-          ? 'Steam accepted activation, but has not yet reported the achievement as unlocked. The item remains queued for review.'
-          : `Steam accepted activation, but remote verification is unavailable: ${verification?.error || 'unknown verification error'}`,
-        errorCode: verification?.errorCode || 'VERIFICATION_UNAVAILABLE',
+        message: result?.success
+          ? 'Steam accepted activation. Confirming the reported Steam state in the background.'
+          : `${result?.error || 'Steam execution became uncertain after activation.'} Checking Steam before any further action.`,
+        errorCode: result?.success ? 'ACTIVATION_ACCEPTED' : (result?.errorCode || 'OPERATION_UNCERTAIN'),
       };
-      currentCountdown = 0;
-      stopQueue();
+      await verifyPendingActivation({ lockAlreadyHeld: true });
+      return;
     }
-  } else {
-    // Do not consume a failed selected achievement. It stays visible in the
-    // paused queue together with an actionable Steam error and error code.
+
+    // A rejected activation is distinct from an accepted activation whose Web
+    // API visibility is delayed. Preserve the selected item and report it.
     lastOutcome = {
-      state: result?.operationMayHaveApplied ? 'verification-pending' : 'failed',
+      state: 'failed',
+      activation: 'rejected',
+      verification: 'not-started',
       achievementId: achievement.id,
-      message: result?.operationMayHaveApplied
-        ? `${result?.error || 'Steam execution state is uncertain.'} The item remains queued because activation may have reached Steam.`
-        : (result?.error || 'Steam could not unlock this achievement. The item remains queued.'),
+      message: result?.error || 'Steam could not unlock this achievement. The item remains queued.',
       errorCode: result?.errorCode || 'STEAM_EXECUTION_FAILED',
     };
     currentCountdown = 0;
     stopQueue();
-  }
   } finally {
-    // Do not release the lock until activation and remote verification finish.
     isUnlocking = false;
   }
 }
 
-/**
- * Starts (or restarts) the 1-second tick interval.
- * Extracted so it can be called both from startQueue() and from the
- * post-unlock recovery path in unlockNext().
- */
 function startTickLoop() {
   if (tickInterval) clearInterval(tickInterval);
-
   tickInterval = setInterval(() => {
-    if (!isActive) return;
-
-    // If an unlock is currently in-flight, freeze the countdown display
-    // (don't decrement) but keep the interval alive.
-    if (isUnlocking) return;
-
-    currentCountdown--;
-    emitUpdate();
-
-    if (currentCountdown <= 0) {
-      // Prevent the interval from firing again while we await the unlock
-      unlockNext();
+    if (!isActive || isUnlocking) return;
+    if (pendingVerification?.autoContinue) {
+      setVerificationCountdown();
+      emitUpdate();
+      if (currentCountdown <= 0) verifyPendingActivation();
+      return;
     }
-  }, 1000);
+
+    currentCountdown -= 1;
+    emitUpdate();
+    if (currentCountdown <= 0) unlockNext();
+  }, 1_000);
 }
 
 function startQueue(achievements, multiplier, variance, overrideMins = null) {
@@ -288,8 +377,6 @@ function startQueue(achievements, multiplier, variance, overrideMins = null) {
   varianceMins = variance ?? 0;
   fixedMins = overrideMins;
 
-  // If new parameters are passed, overwrite the queue after atomically
-  // reserving every unresolved AppID + achievement lease for Instant mode.
   if (achievements && achievements.length > 0) {
     const nextAppId = resolveAppId();
     if (!nextAppId) throw new Error('No selected App ID is available for the Instant queue.');
@@ -301,30 +388,77 @@ function startQueue(achievements, multiplier, variance, overrideMins = null) {
     totalInQueue = achievements.length;
     unlockedCount = 0;
     lastOutcome = null;
+    pendingVerification = null;
+    verificationGeneration += 1;
     currentCountdown = calculateNextDelay();
   } else if (queue.length > 0) {
-    synchronizeQueueLeases();
+    // Resume is read-only whenever the queue head has accepted activation.
+    if (pendingVerification) {
+      verificationGeneration += 1;
+      pendingVerification = {
+        ...pendingVerification,
+        autoContinue: true,
+        exhausted: false,
+        nextVerificationAt: Date.now(),
+      };
+      setVerificationCountdown();
+    } else if (currentCountdown <= 0) {
+      currentCountdown = calculateNextDelay();
+    }
   }
 
   if (queue.length === 0) return getStatus();
-
   isActive = true;
   synchronizeQueueLeases();
   saveState();
-  
   startTickLoop();
   emitUpdate();
   return getStatus();
 }
 
-function stopQueue() {
+function stopQueue({ pauseVerification = true } = {}) {
   isActive = false;
+  if (pauseVerification && pendingVerification) {
+    verificationGeneration += 1;
+    pendingVerification = {
+      ...pendingVerification,
+      autoContinue: false,
+      nextVerificationAt: null,
+    };
+    lastOutcome = {
+      state: 'verification-pending',
+      activation: lastOutcome?.activation || 'accepted',
+      verification: 'paused',
+      achievementId: pendingVerification.achievementId,
+      message: 'Background Steam confirmation is paused. Resume the queue or use Recheck to continue without another activation.',
+      errorCode: 'VERIFICATION_PAUSED',
+    };
+  }
   if (tickInterval) clearInterval(tickInterval);
   tickInterval = null;
   synchronizeQueueLeases();
   saveState();
   emitUpdate();
   return getStatus();
+}
+
+async function recheckVerificationNow() {
+  if (!pendingVerification || queue.length === 0) {
+    throw new Error('No Instant achievement is awaiting Steam confirmation.');
+  }
+  verificationGeneration += 1;
+  pendingVerification = {
+    ...pendingVerification,
+    autoContinue: true,
+    exhausted: false,
+    nextVerificationAt: Date.now(),
+  };
+  isActive = true;
+  synchronizeQueueLeases();
+  saveState();
+  startTickLoop();
+  emitUpdate();
+  return verifyPendingActivation();
 }
 
 function clearQueue() {
@@ -336,6 +470,8 @@ function clearQueue() {
   totalInQueue = 0;
   unlockedCount = 0;
   lastOutcome = null;
+  pendingVerification = null;
+  verificationGeneration += 1;
   fixedMins = null;
   settingsStore.delete('timerState');
   emitUpdate();
@@ -347,5 +483,6 @@ module.exports = {
   getStatus,
   startQueue,
   stopQueue,
-  clearQueue
+  clearQueue,
+  recheckVerificationNow,
 };

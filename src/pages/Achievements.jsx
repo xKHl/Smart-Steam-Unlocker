@@ -272,6 +272,16 @@ export default function Achievements({ selectedGame, onChangeGame }) {
     window.steamAPI?.timer.stopQueue();
   };
 
+  const handleRecheckVerification = async () => {
+    setInstantError('');
+    try {
+      const nextStatus = await window.steamAPI?.timer.recheckVerification();
+      if (nextStatus) setTimerStatus(nextStatus);
+    } catch (error) {
+      setInstantError(error?.message || 'Steam confirmation could not be rechecked.');
+    }
+  };
+
   const handleClearQueue = () => {
     window.steamAPI?.timer.clearQueue();
     // Refresh achievements to ensure our UI is perfectly synced
@@ -440,9 +450,14 @@ export default function Achievements({ selectedGame, onChangeGame }) {
 
             {instantOutcome && (
               <div className={`timer-execution-message ${instantOutcomeTone}`} role={instantOutcomeTone === 'danger' ? 'alert' : 'status'}>
-                <strong>{instantOutcome.state === 'verified' ? 'Steam verification complete.' : instantOutcome.state === 'verification-pending' ? 'Steam confirmation pending.' : 'Instant execution failed.'}</strong>
+                <strong>{instantOutcome.state === 'verified' ? 'Steam verification complete.' : instantOutcome.state === 'verification-pending' ? 'Steam confirmation pending.' : instantOutcome.state === 'verification-needs-attention' ? 'Steam confirmation needs attention.' : 'Instant execution failed.'}</strong>
                 <span>{instantOutcome.message}</span>
                 {instantOutcome.errorCode && <small>Code: {instantOutcome.errorCode}</small>}
+                {timerStatus.pendingVerification && !timerStatus.isActive && (
+                  <button type="button" className="btn-secondary timer-recheck-action" onClick={handleRecheckVerification}>
+                    Recheck Steam confirmation
+                  </button>
+                )}
               </div>
             )}
 
@@ -450,7 +465,7 @@ export default function Achievements({ selectedGame, onChangeGame }) {
               <div style={{ marginTop: 16 }}>
                 <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 13 }}>
                   <span style={{ color: 'var(--text-secondary)' }}>
-                    Unlocking: <strong style={{ color: 'var(--text-primary)' }}>{timerStatus.queue[0].name || timerStatus.queue[0].id}</strong>
+                    {timerStatus.pendingVerification ? 'Confirming: ' : 'Unlocking: '}<strong style={{ color: 'var(--text-primary)' }}>{timerStatus.queue[0].name || timerStatus.queue[0].id}</strong>
                   </span>
                   <span style={{ color: 'var(--text-primary)', fontWeight: 600, fontVariantNumeric: 'tabular-nums' }}>
                     {formatTime(timerStatus.currentCountdown)}

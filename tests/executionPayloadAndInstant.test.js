@@ -106,11 +106,11 @@ describe('single-achievement Instant result flow', () => {
     const manager = source('electron/steamManager.js');
 
     assert.match(timer, /await steamManager\.unlockAchievement\(achievement\.id, activeAppId\)/);
-    assert.match(timer, /await steamManager\.getAchievementVerification\(activeAppId, achievement\.id\)/);
+    assert.match(timer, /await steamManager\.getAchievementVerification\(activeAppId, pendingVerification\.achievementId\)/);
     assert.match(timer, /state: 'verification-pending'/);
-    assert.match(timer, /state: result\?\.operationMayHaveApplied \? 'verification-pending' : 'failed'/);
-    assert.match(timer, /Do not consume a failed selected achievement/);
-    assert.match(timer, /queue\.shift\(\);\s*\/\/ Remove only after remote Steam confirmation\./);
+    assert.match(timer, /if \(result\?\.success \|\| result\?\.operationMayHaveApplied\)/);
+    assert.match(timer, /No retry activation can occur while this evidence exists/);
+    assert.match(timer, /function completeVerifiedAchievement\(achievement\) \{[\s\S]*?queue\.shift\(\);/);
     assert.match(timer, /lastOutcome/);
     assert.match(manager, /Activation acceptance is not remote proof/);
     assert.doesNotMatch(manager, /if \(!expectedAppId\) publishAchievementUnlocked/);

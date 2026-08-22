@@ -93,6 +93,7 @@ contextBridge.exposeInMainWorld('steamAPI', {
     startQueue: (achievements, base, variance, fixedMins) =>
       ipcRenderer.invoke('timer:start-queue', { achievements, base, variance, fixedMins }),
     stopQueue:  () => ipcRenderer.invoke('timer:stop-queue'),
+    recheckVerification: () => ipcRenderer.invoke('timer:recheck-verification'),
     clearQueue: () => ipcRenderer.invoke('timer:clear-queue'),
     getStatus:  () => ipcRenderer.invoke('timer:get-status'),
     onUpdate:   (cb) => {

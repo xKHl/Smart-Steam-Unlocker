@@ -224,6 +224,7 @@ function registerIpcHandlers() {
     return timerService.startQueue(achievements, base, variance, fixedMins);
   });
   registerHandler('timer:stop-queue',  () => timerService.stopQueue());
+  registerHandler('timer:recheck-verification', () => timerService.recheckVerificationNow());
   registerHandler('timer:clear-queue', () => timerService.clearQueue());
   registerHandler('timer:get-status',  () => timerService.getStatus());
 

@@ -655,6 +655,12 @@ async function getAchievementVerification(appId, achievementId) {
     return { success: false, appId, achievementId, error: 'Steam player identity is unavailable.', errorCode: 'MISSING_STEAM_ID' };
   }
 
+  runtimeDiagnostics.trace('verification', 'request-start', {
+    appId,
+    achievementId,
+    steamIdentityAvailable: Boolean(status.steamId),
+    attemptDelaysMs: VERIFICATION_RETRY_DELAYS_MS,
+  });
   const lastResult = await pollForVerifiedUnlock({
     delays: VERIFICATION_RETRY_DELAYS_MS,
     waitForDelay: waitForVerificationDelay,
@@ -684,8 +690,18 @@ async function getAchievementVerification(appId, achievementId) {
     },
   });
 
-  if (lastResult?.success) return { success: true, appId, achievementId, unlocked: lastResult.unlocked === true };
-  return {
+  if (lastResult?.success) {
+    const verified = { success: true, appId, achievementId, unlocked: lastResult.unlocked === true, endpoint: lastResult.endpoint || 'player-achievements' };
+    runtimeDiagnostics.trace('verification', 'request-result', {
+      appId,
+      achievementId,
+      outcome: verified.unlocked ? 'confirmed-unlocked' : 'not-observed-yet',
+      endpoint: verified.endpoint,
+      errorCode: null,
+    });
+    return verified;
+  }
+  const unavailable = {
     success: false,
     appId,
     achievementId,
@@ -693,6 +709,14 @@ async function getAchievementVerification(appId, achievementId) {
     errorCode: lastResult?.errorCode || STEAM_READ_ERROR.STEAM_SERVICE_UNAVAILABLE,
     endpoint: lastResult?.endpoint || null,
   };
+  runtimeDiagnostics.trace('verification', 'request-result', {
+    appId,
+    achievementId,
+    outcome: 'unavailable',
+    endpoint: unavailable.endpoint,
+    errorCode: unavailable.errorCode,
+  });
+  return unavailable;
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
