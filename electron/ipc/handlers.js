@@ -12,7 +12,7 @@ const settingsStore = require('../settingsStore');
 const credentialStore = require('../credentialStore');
 const humanizedService = require('../humanizedService');
 const tradingCardsService = require('../tradingCardsService');
-const { orderAchievements } = require('../humanized/ordering');
+const { orderAchievements, orderingMetadata } = require('../humanized/ordering');
 const {
   assertAppId,
   sanitizeHumanizedPayload,
@@ -233,8 +233,32 @@ function registerIpcHandlers() {
   // Renderer display ordering deliberately delegates to the same canonical
   // normalization and ordering implementation used by schedule generation.
   registerHandler('humanized:order-achievements', (_e, payload) => {
-    const { achievements, orderMode, appId } = sanitizeOrderingPayload(payload);
-    return orderAchievements(achievements, orderMode, { appId });
+    try {
+      const { achievements, orderMode, appId } = sanitizeOrderingPayload(payload);
+      const context = { appId };
+      const metadata = orderingMetadata(achievements, orderMode, context);
+      const ordered = orderAchievements(achievements, orderMode, context);
+      runtimeDiagnostics.trace('humanized-ordering', 'result', {
+        appId,
+        orderMode,
+        achievementCount: achievements.length,
+        knownPercentCount: metadata.knownPercentCount,
+        progressionEvidenceCount: metadata.progressionEvidenceCount,
+        capability: metadata.capability,
+        reasonCode: metadata.reasonCode,
+        orderedIdCount: ordered.length,
+      });
+      return { ordered, metadata };
+    } catch (error) {
+      runtimeDiagnostics.trace('humanized-ordering', 'failure', {
+        appId: Number.isInteger(payload?.appId) ? payload.appId : null,
+        orderMode: typeof payload?.orderMode === 'string' ? payload.orderMode.slice(0, 64) : null,
+        achievementCount: Array.isArray(payload?.achievements) ? payload.achievements.length : null,
+        errorCode: error?.code || 'ORDERING_EXCEPTION',
+        reason: error instanceof Error ? error.message : String(error),
+      });
+      throw error;
+    }
   });
   registerHandler('humanized:create', (_e, payload) => humanizedService.create(sanitizeHumanizedPayload(payload)));
   registerHandler('humanized:replace', (_e, payload) => humanizedService.replace(sanitizeHumanizedPayload(payload)));

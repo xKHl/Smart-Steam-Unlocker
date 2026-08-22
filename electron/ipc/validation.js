@@ -4,7 +4,12 @@ const MAX_ACHIEVEMENTS = 5_000;
 const MAX_ACHIEVEMENT_ID_LENGTH = 256;
 const MAX_TEXT_LENGTH = 512;
 const MAX_SEED_LENGTH = 128;
-const ACHIEVEMENT_ID_PATTERN = /^[A-Za-z0-9_.:-]+$/;
+// Steam achievement API names are publisher-controlled identifiers, not only
+// machine-style slugs. Some valid schemas use safe printable punctuation (for
+// example a trailing exclamation mark). Keep the security boundary by rejecting
+// all ASCII control characters and enforcing the existing 256-character limit;
+// achievement IDs are never evaluated as paths, commands, or URLs.
+const ACHIEVEMENT_ID_PATTERN = /^[^\s/\\\u0000-\u001F\u007F]+$/u;
 
 class IpcValidationError extends Error {
   constructor(message) {

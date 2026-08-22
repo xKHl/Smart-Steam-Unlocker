@@ -148,6 +148,47 @@ function compareNaturalStory(left, right, context) {
   return stableTieBreak(left, right);
 }
 
+function orderingMetadata(achievements, mode = ORDER_MODES.ORIGINAL, context = {}) {
+  const normalized = normalizeAchievements(achievements);
+  const knownPercentCount = normalized.filter((achievement) => achievement.globalPercent !== null).length;
+  const progressionEvidenceCount = normalized.filter((achievement) => naturalStoryRank(achievement, context) !== null).length;
+
+  if (mode === ORDER_MODES.MOST_COMMON_TO_RAREST || mode === ORDER_MODES.RAREST_TO_MOST_COMMON) {
+    return {
+      mode,
+      capability: knownPercentCount > 0 ? 'available' : 'fallback',
+      reasonCode: knownPercentCount > 0 ? null : 'GLOBAL_PERCENTAGES_UNAVAILABLE',
+      knownPercentCount,
+      progressionEvidenceCount,
+      message: knownPercentCount > 0
+        ? null
+        : 'Steam did not provide global completion percentages for this game. The selected rarity mode preserves Steam schema order for achievements without percentages.',
+    };
+  }
+
+  if (mode === ORDER_MODES.NATURAL_STORY) {
+    return {
+      mode,
+      capability: progressionEvidenceCount > 0 ? 'available' : 'fallback',
+      reasonCode: progressionEvidenceCount > 0 ? null : 'PROGRESSION_METADATA_UNAVAILABLE',
+      knownPercentCount,
+      progressionEvidenceCount,
+      message: progressionEvidenceCount > 0
+        ? null
+        : 'No documented progression metadata is available for this game. Natural / Story Progression conservatively preserves Steam schema order.',
+    };
+  }
+
+  return {
+    mode,
+    capability: 'available',
+    reasonCode: null,
+    knownPercentCount,
+    progressionEvidenceCount,
+    message: null,
+  };
+}
+
 function orderAchievements(achievements, mode = ORDER_MODES.ORIGINAL, context = {}) {
   const normalized = normalizeAchievements(achievements);
   const ordered = [...normalized];
@@ -178,5 +219,6 @@ module.exports = {
   normalizeAchievements,
   normalizePercent,
   naturalStoryRank,
+  orderingMetadata,
   orderAchievements,
 };

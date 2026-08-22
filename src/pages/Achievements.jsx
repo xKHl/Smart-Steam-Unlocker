@@ -54,7 +54,7 @@ export default function Achievements({ selectedGame, onChangeGame }) {
   const [fixedMins, setFixedMins] = useState(1);
   const [unlockMode, setUnlockMode] = useState('instant');
   const [humanizedOrderMode, setHumanizedOrderMode] = useState('natural-story-progression');
-  const [humanizedOrderCache, setHumanizedOrderCache] = useState({ revision: '', byMode: {} });
+  const [humanizedOrderCache, setHumanizedOrderCache] = useState({ revision: '', byMode: {}, metadataByMode: {} });
   const [humanizedOrderError, setHumanizedOrderError] = useState('');
 
   // ── Initialization ──────────────────────────────────────────────────────
@@ -148,7 +148,7 @@ export default function Achievements({ selectedGame, onChangeGame }) {
     let cancelled = false;
     const orderAchievements = window.steamAPI?.humanized?.orderAchievements;
     if (!orderAchievements || !achievements.length) {
-      setHumanizedOrderCache({ revision: orderRevision, byMode: {} });
+      setHumanizedOrderCache({ revision: orderRevision, byMode: {}, metadataByMode: {} });
       return () => { cancelled = true; };
     }
 
@@ -160,16 +160,28 @@ export default function Achievements({ selectedGame, onChangeGame }) {
     const canonicalOrderingInput = projectExecutionAchievements(achievements);
     setHumanizedOrderError('');
     Promise.all(modes.map(async (mode) => {
-      const ordered = await orderAchievements(canonicalOrderingInput, mode, selectedGame?.appId);
-      return [mode, Array.isArray(ordered) ? ordered.map((achievement) => achievement.id) : []];
+      const result = await orderAchievements(canonicalOrderingInput, mode, selectedGame?.appId);
+      // The main process returns the sole canonical ordered data plus a
+      // mode-specific capability explanation. Preserve legacy array handling
+      // only for development compatibility; no renderer sort is performed.
+      const ordered = Array.isArray(result) ? result : result?.ordered;
+      return {
+        mode,
+        ids: Array.isArray(ordered) ? ordered.map((achievement) => achievement.id) : [],
+        metadata: Array.isArray(result) ? null : (result?.metadata || null),
+      };
     })).then((entries) => {
-      if (!cancelled) setHumanizedOrderCache({ revision: orderRevision, byMode: Object.fromEntries(entries) });
+      if (!cancelled) setHumanizedOrderCache({
+        revision: orderRevision,
+        byMode: Object.fromEntries(entries.map(({ mode, ids }) => [mode, ids])),
+        metadataByMode: Object.fromEntries(entries.map(({ mode, metadata }) => [mode, metadata])),
+      });
     }).catch(() => {
       // Do not label an original-order fallback as the selected Humanized mode.
       // The renderer never creates a second sorting algorithm; it waits for the
       // main-process canonical ordering bridge and surfaces the unavailable state.
       if (!cancelled) {
-        setHumanizedOrderCache({ revision: orderRevision, byMode: {} });
+        setHumanizedOrderCache({ revision: orderRevision, byMode: {}, metadataByMode: {} });
         setHumanizedOrderError('Could not calculate the selected Humanized order. The grid remains in Steam source order until ordering can be retried.');
       }
     });
@@ -179,6 +191,9 @@ export default function Achievements({ selectedGame, onChangeGame }) {
 
   const canonicalOrderedIds = humanizedOrderCache.revision === orderRevision
     ? humanizedOrderCache.byMode[humanizedOrderMode]
+    : null;
+  const selectedOrderingMetadata = humanizedOrderCache.revision === orderRevision
+    ? humanizedOrderCache.metadataByMode?.[humanizedOrderMode]
     : null;
 
   // One projection pipeline is shared by the grid, Humanized selection badges,
@@ -519,7 +534,9 @@ export default function Achievements({ selectedGame, onChangeGame }) {
             <div className="humanized-grid-context" role="status">
               <span>{humanizedOrderError
                 ? humanizedOrderError
-                : <>Grid ordered by <strong>{HUMANIZED_ORDER_LABELS[humanizedOrderMode] || 'Original Steam order'}</strong>. Select locked achievements to include them in a new schedule.</>}</span>
+                : selectedOrderingMetadata?.message
+                  ? selectedOrderingMetadata.message
+                  : <>Grid ordered by <strong>{HUMANIZED_ORDER_LABELS[humanizedOrderMode] || 'Original Steam order'}</strong>. Select locked achievements to include them in a new schedule.</>}</span>
             </div>
           )}
           <div className="toolbar" role="toolbar" aria-label="Achievement filters">
