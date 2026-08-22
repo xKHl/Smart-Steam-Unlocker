@@ -30,7 +30,7 @@ let _libraryCache     = null;
 let _libraryCacheTime = 0;
 const CACHE_TTL_MS    = 5 * 60 * 1000;
 const TRUSTED_EXTERNAL_URLS = new Set([
-  'https://github.com/xKHI/Smart-Steam-Unlocker',
+  'https://github.com/xKHl/Smart-Steam-Unlocker',
   'https://alotaibi.dev',
 ]);
 
@@ -172,6 +172,23 @@ function registerIpcHandlers() {
     }
     
     return await steamManager.getAchievements(appId, apiKey, status.steamId);
+  });
+  // Integrity scans must be based solely on the latest remote Steam read: no
+  // local optimistic unlock cache is merged into timestamps or score evidence.
+  registerHandler('steam:get-achievement-integrity-data', async (_e, rawAppId) => {
+    const appId = assertAppId(rawAppId);
+    let apiKey;
+    try {
+      apiKey = credentialStore.getApiKey();
+    } catch (error) {
+      return { success: false, achievements: [], errorCode: error?.code || 'NO_API_KEY', error: 'Steam Web API credential is unavailable.' };
+    }
+    let status = steamManager.getStatus();
+    if (!status.steamId) {
+      await steamManager.initSteam();
+      status = steamManager.getStatus();
+    }
+    return steamManager.getAchievements(appId, apiKey, status.steamId, { includeOptimisticCache: false });
   });
   registerHandler('steam:get-global-achievement-percentages', (_e, rawAppId) => steamManager.getGlobalAchievementPercentages(assertAppId(rawAppId)));
   registerHandler('steam:unlock-achievement', (_e, payload) => {

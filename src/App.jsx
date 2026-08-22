@@ -8,6 +8,7 @@ import Library      from './pages/Library';
 import Achievements from './pages/Achievements';
 import TradingCards from './pages/TradingCards';
 import Settings     from './pages/Settings';
+import AchievementIntegrity from './pages/AchievementIntegrity';
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Switching Overlay — shown for ~700ms during app.relaunch() cycle
@@ -176,6 +177,7 @@ function AppContent() {
               <Route path="/library"      element={<Library      selectedGame={selectedGame} onGameSelect={handleGameSelect} switchError={switchGameError} onDismissSwitchError={() => setSwitchGameError(null)} />} />
               <Route path="/achievements" element={<Achievements selectedGame={selectedGame} onChangeGame={() => navigate('/library')} />} />
               <Route path="/trading-cards" element={<TradingCards />} />
+              <Route path="/integrity"     element={<AchievementIntegrity selectedGame={selectedGame} />} />
               <Route path="/settings"     element={<Settings />} />
             </Routes>
           </main>

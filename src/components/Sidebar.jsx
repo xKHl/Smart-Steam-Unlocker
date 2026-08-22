@@ -1,12 +1,13 @@
 import React from 'react';
 import { NavLink } from 'react-router-dom';
-import { CreditCard, Github, Globe2, LayoutDashboard, Library, Trophy, Settings, Zap } from 'lucide-react';
+import { Activity, CreditCard, Github, Globe2, LayoutDashboard, Library, Trophy, Settings, Zap } from 'lucide-react';
 
 const NAV_LINKS = [
   { to: '/',             icon: LayoutDashboard, label: 'Dashboard',    id: 'nav-dashboard',    end: true  },
   { to: '/library',      icon: Library,         label: 'Library',      id: 'nav-library',      end: false },
   { to: '/achievements', icon: Trophy,          label: 'Achievements', id: 'nav-achievements', end: false },
   { to: '/trading-cards', icon: CreditCard,      label: 'Trading Cards', id: 'nav-trading-cards', end: false },
+  { to: '/integrity',    icon: Activity,        label: 'Integrity',    id: 'nav-integrity',     end: false },
   { to: '/settings',     icon: Settings,        label: 'Settings',     id: 'nav-settings',     end: false },
 ];
 
@@ -76,7 +77,7 @@ export default function Sidebar({ steamStatus, selectedGame, version }) {
           </div>
         </div>
         <div className="sidebar-credit-links">
-          <button type="button" onClick={() => openExternal('https://github.com/xKHI/Smart-Steam-Unlocker')} aria-label="Open the Smart Steam Unlocker GitHub repository in your browser"><Github size={12} /> GitHub</button>
+          <button type="button" onClick={() => openExternal('https://github.com/xKHl/Smart-Steam-Unlocker')} aria-label="Open the Smart Steam Unlocker GitHub repository in your browser"><Github size={12} /> GitHub</button>
           <button type="button" onClick={() => openExternal('https://alotaibi.dev')} aria-label="Open Khalid Alotaibi website in your browser"><Globe2 size={12} /> Website</button>
         </div>
         <p className="sidebar-credit-copyright">© 2026 Khalid Alotaibi</p>

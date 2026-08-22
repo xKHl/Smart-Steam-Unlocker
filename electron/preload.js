@@ -38,6 +38,11 @@ contextBridge.exposeInMainWorld('steamAPI', {
     getAchievements: (appId) =>
       ipcRenderer.invoke('steam:get-achievements', appId),
 
+    // Reads latest remote Steam achievement data without merging local optimistic
+    // state. Used only by the local, read-only Integrity evidence workflow.
+    getAchievementIntegrityData: (appId) =>
+      ipcRenderer.invoke('steam:get-achievement-integrity-data', appId),
+
     getGlobalAchievementPercentages: (appId) =>
       ipcRenderer.invoke('steam:get-global-achievement-percentages', appId),
 

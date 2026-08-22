@@ -109,7 +109,7 @@ test('author ownership branding is visible in Sidebar and Settings through the t
     assert.match(ui, /Smart Steam Unlocker/);
     assert.match(ui, /© 2026 Khalid Alotaibi/);
     assert.match(ui, /window\.steamAPI\?\.app\?\.openExternal/);
-    assert.match(ui, /https:\/\/github\.com\/xKHI\/Smart-Steam-Unlocker/);
+    assert.match(ui, /https:\/\/github\.com\/xKHl\/Smart-Steam-Unlocker/);
     assert.match(ui, /https:\/\/alotaibi\.dev/);
   }
 
@@ -119,7 +119,7 @@ test('author ownership branding is visible in Sidebar and Settings through the t
   assert.match(settings, /ABOUT &amp; CREDITS/);
   assert.match(settings, /Created by Khalid Alotaibi/);
   assert.match(settings, /GitHub Repository/);
-  assert.match(handlers, /'https:\/\/github\.com\/xKHI\/Smart-Steam-Unlocker'/);
+  assert.match(handlers, /'https:\/\/github\.com\/xKHl\/Smart-Steam-Unlocker'/);
   assert.match(handlers, /'https:\/\/alotaibi\.dev'/);
   assert.match(preload, /openExternal:\s+\(url\) => ipcRenderer\.invoke\('app:open-external', url\)/);
 });
@@ -130,7 +130,7 @@ test('Dashboard stays product-focused while Sidebar layout and existing navigati
   const styles = source('src/index.css');
 
   assert.doesNotMatch(dashboard, /dashboard-footer/);
-  assert.doesNotMatch(dashboard, /GitHub: xkhi/);
+  assert.doesNotMatch(dashboard, /GitHub Repository/);
   assert.match(sidebar, /nav-dashboard/);
   assert.match(sidebar, /nav-library/);
   assert.match(sidebar, /nav-achievements/);

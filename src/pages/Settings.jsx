@@ -195,9 +195,9 @@ export default function Settings() {
         </div>
         <p className="settings-about-description">A focused Steam achievement companion designed around clear progress, safe automation controls, and transparent Steam state.</p>
         <div className="settings-about-links" role="group" aria-label="Project links">
-          <button type="button" className="settings-about-link" onClick={() => openExternal('https://github.com/xKHI/Smart-Steam-Unlocker')}>
+          <button type="button" className="settings-about-link" onClick={() => openExternal('https://github.com/xKHl/Smart-Steam-Unlocker')}>
             <Github size={15} />
-            <span><strong>GitHub Repository</strong><small>github.com/xKHI/Smart-Steam-Unlocker</small></span>
+            <span><strong>GitHub Repository</strong><small>github.com/xKHl/Smart-Steam-Unlocker</small></span>
             <ExternalLink size={13} aria-hidden="true" />
           </button>
           <button type="button" className="settings-about-link" onClick={() => openExternal('https://alotaibi.dev')}>

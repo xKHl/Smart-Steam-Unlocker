@@ -317,10 +317,18 @@ async function getAchievements(appId, apiKey, steamId, { includeOptimisticCache 
     const schemaAchievements = schemaJson?.game?.availableGameStats?.achievements || [];
     const playerAchievements = playerJson?.playerstats?.achievements || [];
 
-    // Map player unlock status by API name
-    const unlockedMap = {};
+    // Map the remote unlock state by API name. Steam's `unlocktime` is a Unix
+    // timestamp in seconds; it is preserved verbatim when Steam reports one.
+    // The renderer may use this read-only evidence for a chronological integrity
+    // timeline, but must never infer a time for optimistic local cache entries.
+    const unlockStateMap = {};
     for (const pa of playerAchievements) {
-      unlockedMap[pa.apiname] = pa.achieved === 1;
+      unlockStateMap[pa.apiname] = {
+        unlocked: pa.achieved === 1,
+        unlockTime: Number.isFinite(Number(pa.unlocktime)) && Number(pa.unlocktime) > 0
+          ? Number(pa.unlocktime)
+          : null,
+      };
     }
 
     // UI reads may merge local optimistic cache while a remote API update is pending.
@@ -329,17 +337,21 @@ async function getAchievements(appId, apiKey, steamId, { includeOptimisticCache 
       const cacheKey = `unlocked_cache_${appId}`;
       const optimisticCache = settingsStore.get(cacheKey) || [];
       for (const id of optimisticCache) {
-        unlockedMap[id] = true;
+        unlockStateMap[id] = { ...(unlockStateMap[id] || {}), unlocked: true };
       }
     }
 
     const achievements = schemaAchievements.map((sa, index) => {
-      const isUnlocked = !!unlockedMap[sa.name];
+      const unlockState = unlockStateMap[sa.name] || { unlocked: false, unlockTime: null };
+      const isUnlocked = unlockState.unlocked;
       return {
         id: sa.name,
         name: sa.displayName || sa.name,
         description: sa.description || '',
         unlocked: isUnlocked,
+        // This field is remote Steam evidence only. Null means Steam did not
+        // report a timestamp; it must not be fabricated by this application.
+        unlockTime: unlockState.unlockTime ?? null,
         hidden: sa.hidden === 1,
         originalIndex: index, // Preserve canonical order
         iconUrl: buildAchievementIconUrl(appId, isUnlocked ? sa.icon : sa.icongray),
