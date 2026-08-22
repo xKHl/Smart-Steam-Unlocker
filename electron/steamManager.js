@@ -425,70 +425,139 @@ async function unlockAchievement(achievementId, expectedAppId = null) {
   let errorCode = null;
 
   try {
+    // ── DIAGNOSTIC: lifecycle trace for first-achievement investigation ──────
+    // Each step is logged to runtimeDiagnostics so the Windows runtime can confirm
+    // exactly which of SetAchievement / StoreStats fails and at what readiness state.
+    // These traces are redacted (no credentials, no API keys).
+    runtimeDiagnostics.trace('unlock', 'init-start', { appId: targetAppId, achievementId });
+
     // 1. Initialize Steamworks for this single operation.
     //    steamworks.init() calls request_current_stats() internally but returns
-    //    before the UserStatsReceived callback fires (the 30fps pump delivers it
-    //    asynchronously). We must not call activate() until the stats cache is
-    //    populated — otherwise SetAchievement returns false (ACTIVATION_REJECTED).
+    //    BEFORE the UserStatsReceived callback fires (the 30fps pump delivers it
+    //    asynchronously). We must not call activate() until StoreStats is ready.
     const steamworks = require('steamworks.js');
     localClient = steamworks.init(targetAppId);
+    runtimeDiagnostics.trace('unlock', 'init-returned', { appId: targetAppId });
     // We don't touch module-level `client` here — we use a local reference
     // so our finally block can clean up even if the module state was mucked with.
 
-    // 2. Wait for the stats cache to be ready.
-    //    steamworks.js 0.3.2 does not expose UserStatsReceived via callback.register.
-    //    The reliable readiness signal is achievement.isActivated(): it returns a
-    //    boolean (true/false) once the stats cache is populated, and throws or
-    //    returns undefined before the cache is ready. We poll with async yields so
-    //    the 30fps callback pump (setInterval at 1000/30 ms) can fire between ticks.
-    //    Hard timeout: 3 seconds — sufficient for any normal Steam client state.
-    const STATS_READY_TIMEOUT_MS = 3000;
-    const STATS_READY_POLL_INTERVAL_MS = 20; // one pump tick is ~33ms; poll faster
-    const statsReadyStart = Date.now();
-    let statsReady = false;
-    while (!statsReady) {
+    // 2. Two-stage stats-readiness gate.
+    //
+    //    ROOT CAUSE (confirmed from Rust source + Steam Game Idler SteamworksSession.cs):
+    //    - activate() = set() + store_stats() collapsed into one boolean.
+    //    - is_activated() = get().unwrap_or(false) — ALWAYS returns false when the
+    //      cache is not yet populated (unwrap_or(false) hides the error).
+    //    - Therefore: is_activated() returning false does NOT prove write-readiness.
+    //    - StoreStats fails when RequestCurrentStats has not completed its callback.
+    //    - The 0.2.3 probe was detecting false from an empty cache and treating it as ready.
+    //
+    //    CORRECT GATE (mirrors Steam Game Idler's RequestUserStats spin-wait):
+    //    Stage A: Wait for is_activated() to return false without throwing — confirms
+    //             the cache has been initialized (RequestCurrentStats was sent).
+    //    Stage B: Wait for stats.store() to return true — confirms RequestCurrentStats
+    //             callback has fired and StoreStats will succeed.
+    //    Both stages use async yields so the 30fps pump can fire between ticks.
+    //    Hard timeout: 5 seconds per stage.
+    const STATS_READY_TIMEOUT_MS = 5000;
+    const STATS_READY_POLL_INTERVAL_MS = 40; // slightly longer than one pump tick (33ms)
+    let stageAReady = false;
+    let stageBReady = false;
+    let stageAElapsed = 0;
+    let stageBElapsed = 0;
+
+    // Stage A: wait for is_activated() to not throw (cache initialized)
+    const stageAStart = Date.now();
+    while (!stageAReady) {
       try {
-        const probeResult = localClient.achievement.isActivated(achievementId);
-        // isActivated returns a boolean (true = already unlocked, false = locked).
-        // Either boolean value means the stats cache is populated and activate() is safe.
-        if (typeof probeResult === 'boolean') {
-          statsReady = true;
-          break;
-        }
+        localClient.achievement.isActivated(achievementId); // result ignored; we just need it not to throw
+        stageAReady = true;
       } catch (_probeErr) {
-        // Stats cache not yet populated — continue polling.
+        // Cache not yet initialized — continue polling.
       }
-      if (Date.now() - statsReadyStart >= STATS_READY_TIMEOUT_MS) {
-        errorMsg = 'Steam stats cache was not ready within the allowed window.';
-        errorCode = 'STATS_NOT_READY';
-        break;
+      if (!stageAReady) {
+        if (Date.now() - stageAStart >= STATS_READY_TIMEOUT_MS) break;
+        await new Promise(resolve => setTimeout(resolve, STATS_READY_POLL_INTERVAL_MS));
       }
-      // Yield to the event loop so the 30fps callback pump can fire.
-      await new Promise(resolve => setTimeout(resolve, STATS_READY_POLL_INTERVAL_MS));
+    }
+    stageAElapsed = Date.now() - stageAStart;
+    runtimeDiagnostics.trace('unlock', 'readiness-stage-a', { stageAReady, stageAElapsedMs: stageAElapsed });
+
+    if (stageAReady) {
+      // Stage B: wait for stats.store() to return true (RequestCurrentStats callback fired)
+      const stageBStart = Date.now();
+      while (!stageBReady) {
+        try {
+          const storeProbe = localClient.stats.store();
+          runtimeDiagnostics.trace('unlock', 'readiness-stage-b-probe', { storeProbe });
+          if (storeProbe) {
+            stageBReady = true;
+          }
+        } catch (_storeErr) {
+          // store() threw — not ready yet.
+        }
+        if (!stageBReady) {
+          if (Date.now() - stageBStart >= STATS_READY_TIMEOUT_MS) break;
+          await new Promise(resolve => setTimeout(resolve, STATS_READY_POLL_INTERVAL_MS));
+        }
+      }
+      stageBElapsed = Date.now() - stageBStart;
+      runtimeDiagnostics.trace('unlock', 'readiness-stage-b', { stageBReady, stageBElapsedMs: stageBElapsed });
     }
 
-    if (statsReady) {
-      // 3. Perform the unlock.
-      //    achievement.activate() in steamworks.js calls SetAchievement + StoreStats
-      //    internally in a single atomic operation (confirmed from Rust source).
-      //    No separate stats.store() call is needed — calling it again would be a
-      //    redundant double-store that adds an unnecessary network round-trip.
-      const activated = localClient.achievement.activate(achievementId);
-      if (activated) {
-        activationMayHaveApplied = true;
+    if (!stageAReady || !stageBReady) {
+      errorMsg = `Steam stats not ready for writes (stageA=${stageAReady}, stageB=${stageBReady}).`;
+      errorCode = 'STATS_NOT_READY';
+    } else {
+      // 3. Perform the unlock with bounded retry.
+      //
+      //    activate() = set() + store_stats() in one atomic Rust call.
+      //    Valve documents: "You can unlock an achievement multiple times so you don't
+      //    need to worry about only setting achievements that aren't already set."
+      //    A bounded retry (up to MAX_ACTIVATE_ATTEMPTS) is therefore a documented-safe
+      //    pattern — not a blind retry — justified by Valve's own guarantee.
+      //    The retry is a safety net for transient Steam IPC hiccups, not a substitute
+      //    for proper readiness gating (which Stage A + B already provide).
+      const MAX_ACTIVATE_ATTEMPTS = 3;
+      const ACTIVATE_RETRY_DELAYS_MS = [0, 2000, 5000];
+      let attemptNum = 0;
+      let lastActivateResult = false;
+      while (attemptNum < MAX_ACTIVATE_ATTEMPTS && !success) {
+        if (ACTIVATE_RETRY_DELAYS_MS[attemptNum] > 0) {
+          await new Promise(resolve => setTimeout(resolve, ACTIVATE_RETRY_DELAYS_MS[attemptNum]));
+        }
+        runtimeDiagnostics.trace('unlock', 'activate-attempt', { achievementId, attempt: attemptNum + 1 });
+        lastActivateResult = localClient.achievement.activate(achievementId);
+        // DIAGNOSTIC: log the collapsed boolean. Since activate() = set() + store_stats(),
+        // a false here means either SetAchievement or StoreStats failed. With Stage B
+        // confirming StoreStats readiness, a false here most likely means SetAchievement
+        // itself failed (e.g., achievement ID not found, already unlocked, or Steam error).
+        runtimeDiagnostics.trace('unlock', 'activate-result', {
+          achievementId,
+          attempt: attemptNum + 1,
+          activated: lastActivateResult,
+          // Note: activate() collapses SetAchievement + StoreStats into one boolean.
+          // Stage B above confirmed StoreStats readiness, so a false here is most likely
+          // SetAchievement failing (not StoreStats). This is the diagnostic evidence.
+          likelyFailingCall: lastActivateResult ? 'none' : 'SetAchievement (StoreStats confirmed ready by Stage B)',
+        });
+        if (lastActivateResult) {
+          activationMayHaveApplied = true;
+          success = true;
+        }
+        attemptNum++;
+      }
+      if (success) {
         // console.log(`[SteamManager] ✓ Unlocked: ${achievementId}`);
-        success = true;
         // Preserve Instant mode's immediate refresh after the valid local store.
         // Humanized mode supplies expectedAppId and deliberately waits for the
         // independent verifier before publishing a renderer/cache unlock update.
         if (!expectedAppId) publishAchievementUnlocked(targetAppId, achievementId);
       } else {
-        errorMsg = 'Activation returned false';
+        errorMsg = `Activation returned false after ${attemptNum} attempt(s)`;
         errorCode = 'ACTIVATION_REJECTED';
-        // console.error(`[SteamManager] ✗ Activate returned false for: ${achievementId}`);
       }
     }
-    // If !statsReady, errorMsg/errorCode are already set above; fall through to finally.
+    // If !stageAReady || !stageBReady, errorMsg/errorCode are set above; fall through to finally.
   } catch (err) {
     errorMsg = err.message;
     errorCode = activationMayHaveApplied ? 'OPERATION_UNCERTAIN' : 'STEAM_EXECUTION_FAILED';

@@ -25,14 +25,20 @@ function source(relPath) {
 // ─────────────────────────────────────────────────────────────────────────────
 
 describe('Stats-readiness gate in unlockAchievement', () => {
-  test('steamManager uses isActivated as the readiness probe before activate()', () => {
+  test('steamManager uses a two-stage readiness gate before activate()', () => {
     const sm = source('electron/steamManager.js');
-    // The readiness poll must use isActivated as the probe.
+    // Stage A: isActivated() must be used as the cache-initialization probe.
     assert.match(sm, /isActivated\(achievementId\)/,
-      'isActivated(achievementId) must be used as the stats-readiness probe');
-    // The probe result must be checked for typeof boolean.
-    assert.match(sm, /typeof probeResult === 'boolean'/,
-      'Readiness is confirmed by a boolean return from isActivated');
+      'isActivated(achievementId) must be used as the Stage A readiness probe');
+    // Stage A must set stageAReady = true.
+    assert.match(sm, /stageAReady = true/,
+      'Stage A must set stageAReady = true when the probe does not throw');
+    // Stage B: stats.store() must be used as the write-readiness probe.
+    assert.match(sm, /storeProbe = localClient\.stats\.store\(\)/,
+      'stats.store() must be used as the Stage B write-readiness probe');
+    // Stage B must set stageBReady = true.
+    assert.match(sm, /stageBReady = true/,
+      'Stage B must set stageBReady = true when stats.store() returns true');
     // The gate must have a hard timeout.
     assert.match(sm, /STATS_READY_TIMEOUT_MS/,
       'A hard timeout constant must guard the readiness poll');
@@ -42,33 +48,68 @@ describe('Stats-readiness gate in unlockAchievement', () => {
     // The timeout must produce a distinct error code.
     assert.match(sm, /STATS_NOT_READY/,
       'Timeout must produce STATS_NOT_READY error code');
+    // Both stages must be confirmed before activate() is called.
+    assert.match(sm, /if \(!stageAReady \|\| !stageBReady\)/,
+      'activate() must only be called when both stageAReady and stageBReady are true');
   });
 
-  test('activate() is only called after statsReady is true', () => {
+  test('activate() is only called after both readiness stages pass', () => {
     const sm = source('electron/steamManager.js');
-    // The activate call must be guarded by the statsReady flag.
-    assert.match(sm, /if \(statsReady\)/,
-      'activate() must be inside an if(statsReady) block');
-    // The readiness loop must break on success.
-    assert.match(sm, /statsReady = true/,
-      'statsReady must be set to true when the probe returns a boolean');
+    // The activate call must be inside the else branch of the stageA/B check.
+    assert.match(sm, /} else \{[\s\S]*?localClient\.achievement\.activate\(achievementId\)/,
+      'activate() must be inside the else branch after the stageA+B check');
+    // The bounded retry must be present.
+    assert.match(sm, /MAX_ACTIVATE_ATTEMPTS/,
+      'A bounded retry constant must be present for activate()');
+    assert.match(sm, /ACTIVATE_RETRY_DELAYS_MS/,
+      'Retry delays must be defined for the bounded retry');
   });
 
-  test('STATS_READY_TIMEOUT_MS is at least 2000ms and at most 5000ms', () => {
+  test('STATS_READY_TIMEOUT_MS is at least 3000ms and at most 10000ms', () => {
     const sm = source('electron/steamManager.js');
     const match = sm.match(/STATS_READY_TIMEOUT_MS\s*=\s*(\d+)/);
     assert.ok(match, 'STATS_READY_TIMEOUT_MS must be defined as a numeric constant');
     const ms = Number(match[1]);
-    assert.ok(ms >= 2000, `STATS_READY_TIMEOUT_MS (${ms}) must be at least 2000ms`);
-    assert.ok(ms <= 5000, `STATS_READY_TIMEOUT_MS (${ms}) must be at most 5000ms`);
+    assert.ok(ms >= 3000, `STATS_READY_TIMEOUT_MS (${ms}) must be at least 3000ms`);
+    assert.ok(ms <= 10000, `STATS_READY_TIMEOUT_MS (${ms}) must be at most 10000ms`);
   });
 
-  test('STATS_READY_POLL_INTERVAL_MS is shorter than one callback pump tick (33ms)', () => {
+  test('STATS_READY_POLL_INTERVAL_MS is at least one pump tick (33ms) and at most 200ms', () => {
     const sm = source('electron/steamManager.js');
     const match = sm.match(/STATS_READY_POLL_INTERVAL_MS\s*=\s*(\d+)/);
     assert.ok(match, 'STATS_READY_POLL_INTERVAL_MS must be defined as a numeric constant');
     const ms = Number(match[1]);
-    assert.ok(ms < 33, `STATS_READY_POLL_INTERVAL_MS (${ms}) must be shorter than one 30fps pump tick (33ms)`);
+    assert.ok(ms >= 33, `STATS_READY_POLL_INTERVAL_MS (${ms}) must be at least one pump tick (33ms)`);
+    assert.ok(ms <= 200, `STATS_READY_POLL_INTERVAL_MS (${ms}) must be at most 200ms`);
+  });
+
+  test('bounded retry uses Valve-documented safe pattern with backoff', () => {
+    const sm = source('electron/steamManager.js');
+    // MAX_ACTIVATE_ATTEMPTS must be defined.
+    const attemptsMatch = sm.match(/MAX_ACTIVATE_ATTEMPTS\s*=\s*(\d+)/);
+    assert.ok(attemptsMatch, 'MAX_ACTIVATE_ATTEMPTS must be defined');
+    const attempts = Number(attemptsMatch[1]);
+    assert.ok(attempts >= 2 && attempts <= 5, `MAX_ACTIVATE_ATTEMPTS (${attempts}) must be between 2 and 5`);
+    // The retry must be justified by Valve documentation in a comment.
+    assert.match(sm, /unlock an achievement multiple times/,
+      'Bounded retry must be justified by Valve documentation comment');
+  });
+
+  test('diagnostic traces log init, readiness stages, and activate result separately', () => {
+    const sm = source('electron/steamManager.js');
+    assert.match(sm, /runtimeDiagnostics\.trace\('unlock', 'init-start'/,
+      'Must trace init-start');
+    assert.match(sm, /runtimeDiagnostics\.trace\('unlock', 'init-returned'/,
+      'Must trace init-returned');
+    assert.match(sm, /runtimeDiagnostics\.trace\('unlock', 'readiness-stage-a'/,
+      'Must trace readiness-stage-a');
+    assert.match(sm, /runtimeDiagnostics\.trace\('unlock', 'readiness-stage-b'/,
+      'Must trace readiness-stage-b');
+    assert.match(sm, /runtimeDiagnostics\.trace\('unlock', 'activate-result'/,
+      'Must trace activate-result');
+    // The diagnostic must log the likelyFailingCall field.
+    assert.match(sm, /likelyFailingCall/,
+      'Diagnostic must identify the likely failing call (SetAchievement vs StoreStats)');
   });
 });
 
@@ -76,27 +117,34 @@ describe('Stats-readiness gate in unlockAchievement', () => {
 // 2. Redundant double-store removal
 // ─────────────────────────────────────────────────────────────────────────────
 
-describe('Redundant stats.store() removal after activate()', () => {
-  test('unlockAchievement does not call stats.store() after activate()', () => {
+describe('stats.store() usage in unlockAchievement', () => {
+  test('stats.store() is used as a Stage B write-readiness probe, not as a post-activation double-store', () => {
     const sm = source('electron/steamManager.js');
     // Find the unlockAchievement function body.
     const unlockStart = sm.indexOf('async function unlockAchievement(');
     assert.ok(unlockStart >= 0, 'unlockAchievement function must exist');
-    // Find the end of the function (next top-level async function or module.exports).
     const afterUnlock = sm.slice(unlockStart);
     const nextFnMatch = afterUnlock.match(/\n(?:async function|function|module\.exports)/);
     const unlockBody = nextFnMatch
       ? afterUnlock.slice(0, nextFnMatch.index)
       : afterUnlock;
-    // The body must not contain localClient.stats.store() — that is the redundant call.
-    assert.doesNotMatch(unlockBody, /localClient\.stats\.store\(\)/,
-      'localClient.stats.store() must not appear in unlockAchievement — activate() already calls store_stats() internally');
+    // stats.store() IS present as the Stage B readiness probe (storeProbe = localClient.stats.store()).
+    assert.match(unlockBody, /storeProbe = localClient\.stats\.store\(\)/,
+      'stats.store() must be used as the Stage B write-readiness probe');
+    // But stats.store() must NOT appear AFTER activate() as a redundant second call.
+    // The activate() call is inside the else branch; stats.store() must only appear in Stage B.
+    const activateIdx = unlockBody.indexOf('localClient.achievement.activate(achievementId)');
+    assert.ok(activateIdx >= 0, 'activate() must be present in unlockAchievement');
+    const afterActivate = unlockBody.slice(activateIdx);
+    // After activate(), there must be no standalone localClient.stats.store() call.
+    assert.doesNotMatch(afterActivate, /localClient\.stats\.store\(\)/,
+      'localClient.stats.store() must not appear after activate() — that would be a redundant double-store');
   });
 
   test('activate() is documented as including an internal store_stats() call', () => {
     const sm = source('electron/steamManager.js');
-    // The comment explaining why stats.store() is not needed must be present.
-    assert.match(sm, /activate\(\).*calls.*SetAchievement.*StoreStats|activate\(\).*store_stats\(\).*internally/s,
+    // The comment explaining the activate() semantics must be present.
+    assert.match(sm, /activate\(\).*=.*set\(\).*store_stats\(\)|activate\(\).*store_stats\(\).*internally/s,
       'A comment must document that activate() includes an internal store_stats() call');
   });
 });
