@@ -67,7 +67,7 @@ function scheduleStateMeta(state) {
   return SCHEDULE_STATE[state] || { label: 'Preparing', tone: 'neutral' };
 }
 
-export default function HumanizedSchedulePanel({ selectedGame, achievements, selectedIds, orderMode, onOrderModeChange, onScheduleCreated }) {
+export default function HumanizedSchedulePanel({ selectedGame, achievements, canonicalAchievements = achievements, selectedIds, orderMode, onOrderModeChange, onScheduleCreated }) {
   const [status, setStatus] = useState({ schedule: null, summary: null });
   const [seed, setSeed] = useState('humanized-schedule');
   const [timingPreset, setTimingPreset] = useState(DEFAULT_TIMING_PRESET);
@@ -96,9 +96,12 @@ export default function HumanizedSchedulePanel({ selectedGame, achievements, sel
 
   const schedule = status.schedule;
   const summary = status.summary;
+  // The parent supplies the same main-process canonical ordering projection used
+  // by the visible grid. Scheduler ordering remains authoritative in main, while
+  // this preserves order parity through selected-ID projection and IPC input.
   const selectedAchievements = useMemo(
-    () => achievements.filter((achievement) => selectedIds.has(achievement.id) && !achievement.unlocked),
-    [achievements, selectedIds],
+    () => canonicalAchievements.filter((achievement) => selectedIds.has(achievement.id) && !achievement.unlocked),
+    [canonicalAchievements, selectedIds],
   );
   const scheduleMatchesGame = !schedule || String(schedule.appId) === String(selectedGame?.appId);
   const executingItem = schedule?.items?.find((item) => item.status === 'executing');

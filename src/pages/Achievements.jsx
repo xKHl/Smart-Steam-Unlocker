@@ -55,6 +55,7 @@ export default function Achievements({ selectedGame, onChangeGame }) {
   const [unlockMode, setUnlockMode] = useState('instant');
   const [humanizedOrderMode, setHumanizedOrderMode] = useState('natural-story-progression');
   const [humanizedOrderCache, setHumanizedOrderCache] = useState({ revision: '', byMode: {} });
+  const [humanizedOrderError, setHumanizedOrderError] = useState('');
 
   // ── Initialization ──────────────────────────────────────────────────────
   useEffect(() => {
@@ -152,15 +153,25 @@ export default function Achievements({ selectedGame, onChangeGame }) {
     }
 
     const modes = ['original', 'natural-story-progression', 'most-common-to-rarest', 'rarest-to-most-common'];
+    // Achievement view models also carry read-only evidence such as unlockTime.
+    // The strict ordering IPC accepts the canonical ordering contract only; do
+    // not let one UI-only field reject every mode and silently leave the grid in
+    // its Steam-source fallback order.
+    const canonicalOrderingInput = projectExecutionAchievements(achievements);
+    setHumanizedOrderError('');
     Promise.all(modes.map(async (mode) => {
-      const ordered = await orderAchievements(achievements, mode, selectedGame?.appId);
+      const ordered = await orderAchievements(canonicalOrderingInput, mode, selectedGame?.appId);
       return [mode, Array.isArray(ordered) ? ordered.map((achievement) => achievement.id) : []];
     })).then((entries) => {
       if (!cancelled) setHumanizedOrderCache({ revision: orderRevision, byMode: Object.fromEntries(entries) });
     }).catch(() => {
-      // Instant mode stays in Steam order. Humanized falls back safely until the
-      // canonical bridge is available rather than introducing renderer sorting.
-      if (!cancelled) setHumanizedOrderCache({ revision: orderRevision, byMode: {} });
+      // Do not label an original-order fallback as the selected Humanized mode.
+      // The renderer never creates a second sorting algorithm; it waits for the
+      // main-process canonical ordering bridge and surfaces the unavailable state.
+      if (!cancelled) {
+        setHumanizedOrderCache({ revision: orderRevision, byMode: {} });
+        setHumanizedOrderError('Could not calculate the selected Humanized order. The grid remains in Steam source order until ordering can be retried.');
+      }
     });
 
     return () => { cancelled = true; };
@@ -170,13 +181,21 @@ export default function Achievements({ selectedGame, onChangeGame }) {
     ? humanizedOrderCache.byMode[humanizedOrderMode]
     : null;
 
-  const displayedAchievements = useMemo(() => projectAchievementDisplay({
+  // One projection pipeline is shared by the grid, Humanized selection badges,
+  // bulk selection, and schedule input: canonical data → canonical order →
+  // search/filter visibility. Instant deliberately retains Steam source order.
+  const canonicalOrderedAchievements = useMemo(() => projectAchievementDisplay({
     achievements,
     orderedIds: canonicalOrderedIds,
     useCanonicalOrder: unlockMode === 'humanized',
+  }), [achievements, canonicalOrderedIds, unlockMode]);
+
+  const displayedAchievements = useMemo(() => projectAchievementDisplay({
+    achievements: canonicalOrderedAchievements,
+    useCanonicalOrder: false,
     search,
     filter,
-  }), [achievements, canonicalOrderedIds, filter, search, unlockMode]);
+  }), [canonicalOrderedAchievements, filter, search]);
 
   const instantOutcome = timerStatus.lastOutcome;
   const instantOutcomeTone = instantOutcome?.state === 'verified'
@@ -196,12 +215,12 @@ export default function Achievements({ selectedGame, onChangeGame }) {
 
   const selectedIndexMap = useMemo(() => {
     const map = new Map();
-    let i = 1;
-    for (const id of selectedIds) {
-      map.set(id, i++);
-    }
+    const selectedOrder = unlockMode === 'humanized'
+      ? canonicalOrderedAchievements.map((achievement) => achievement.id).filter((id) => selectedIds.has(id))
+      : [...selectedIds];
+    selectedOrder.forEach((id, index) => map.set(id, index + 1));
     return map;
-  }, [selectedIds]);
+  }, [canonicalOrderedAchievements, selectedIds, unlockMode]);
 
   // Bulk selection is deliberately derived from the rendered projection. In
   // Humanized mode that projection already uses main-process canonical IDs;
@@ -487,6 +506,7 @@ export default function Achievements({ selectedGame, onChangeGame }) {
             <HumanizedSchedulePanel
               selectedGame={selectedGame}
               achievements={achievements}
+              canonicalAchievements={canonicalOrderedAchievements}
               selectedIds={selectedIds}
               orderMode={humanizedOrderMode}
               onOrderModeChange={setHumanizedOrderMode}
@@ -497,7 +517,9 @@ export default function Achievements({ selectedGame, onChangeGame }) {
           {/* ── Toolbar ── */}
           {unlockMode === 'humanized' && (
             <div className="humanized-grid-context" role="status">
-              <span>Grid ordered by <strong>{HUMANIZED_ORDER_LABELS[humanizedOrderMode] || 'Original Steam order'}</strong>. Select locked achievements to include them in a new schedule.</span>
+              <span>{humanizedOrderError
+                ? humanizedOrderError
+                : <>Grid ordered by <strong>{HUMANIZED_ORDER_LABELS[humanizedOrderMode] || 'Original Steam order'}</strong>. Select locked achievements to include them in a new schedule.</>}</span>
             </div>
           )}
           <div className="toolbar" role="toolbar" aria-label="Achievement filters">
