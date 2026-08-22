@@ -9,6 +9,7 @@ import {
   removeVisibleLockedSelection,
   visibleLockedAchievementIds,
 } from '../lib/achievementBulkSelection.mjs';
+import { projectExecutionAchievements } from '../lib/executionAchievementPayload.mjs';
 
 const FILTERS = ['All', 'Locked', 'Unlocked'];
 
@@ -42,9 +43,10 @@ export default function Achievements({ selectedGame, onChangeGame }) {
   
   // ── Timer State ─────────────────────────────────────────────────────────
   const [timerStatus, setTimerStatus] = useState({
-    isActive: false, queue: [], currentCountdown: 0, 
-    baseMultiplier: 1, varianceMins: 15, totalInQueue: 0, unlockedCount: 0
+    isActive: false, queue: [], currentCountdown: 0,
+    baseMultiplier: 1, varianceMins: 15, totalInQueue: 0, unlockedCount: 0, lastOutcome: null,
   });
+  const [instantError, setInstantError] = useState('');
   
   const [baseMultiplier, setBaseMultiplier] = useState(1);
   const [varianceMins, setVarianceMins] = useState(15);
@@ -176,6 +178,13 @@ export default function Achievements({ selectedGame, onChangeGame }) {
     filter,
   }), [achievements, canonicalOrderedIds, filter, search, unlockMode]);
 
+  const instantOutcome = timerStatus.lastOutcome;
+  const instantOutcomeTone = instantOutcome?.state === 'verified'
+    ? 'success'
+    : instantOutcome?.state === 'verification-pending'
+      ? 'warning'
+      : 'danger';
+
   // Set of IDs currently in the queue
   const queueIds = useMemo(() => new Set(timerStatus.queue.map(q => q.id)), [timerStatus.queue]);
 
@@ -222,17 +231,40 @@ export default function Achievements({ selectedGame, onChangeGame }) {
     ));
   };
 
-  const handleStartQueue = () => {
+  const handleStartQueue = async () => {
     if (selectedIds.size === 0 && timerStatus.queue.length === 0) return;
-    
-    if (selectedIds.size > 0) {
-      // Start a brand new queue with selected items
-      const selectedItems = achievements.filter(a => selectedIds.has(a.id));
-      window.steamAPI?.timer.startQueue(selectedItems, parseFloat(baseMultiplier), parseInt(varianceMins), useFixedTime ? parseFloat(fixedMins) : null);
-      setSelectedIds(new Set()); // clear selection
-    } else {
-      // Resume existing queue
-      window.steamAPI?.timer.startQueue([], parseFloat(baseMultiplier), parseInt(varianceMins), useFixedTime ? parseFloat(fixedMins) : null);
+    setInstantError('');
+
+    try {
+      if (selectedIds.size > 0) {
+        // The achievement view model can carry display-only Steam evidence such
+        // as unlockTime. Project it to the strict execution IPC contract.
+        const selectedItems = projectExecutionAchievements(
+          achievements.filter((achievement) => selectedIds.has(achievement.id)),
+        );
+        const nextStatus = await window.steamAPI?.timer.startQueue(
+          selectedItems,
+          parseFloat(baseMultiplier),
+          parseInt(varianceMins),
+          useFixedTime ? parseFloat(fixedMins) : null,
+        );
+        if (!nextStatus?.isActive || nextStatus.queue.length !== selectedItems.length) {
+          throw new Error('Instant queue did not start. Your selected achievements are still available.');
+        }
+        setTimerStatus(nextStatus);
+        // Only clear selection after the main process has accepted the full queue.
+        setSelectedIds(new Set());
+      } else {
+        const nextStatus = await window.steamAPI?.timer.startQueue(
+          [],
+          parseFloat(baseMultiplier),
+          parseInt(varianceMins),
+          useFixedTime ? parseFloat(fixedMins) : null,
+        );
+        if (nextStatus) setTimerStatus(nextStatus);
+      }
+    } catch (error) {
+      setInstantError(error?.message || 'Instant queue could not start. Your selection was kept.');
     }
   };
 
@@ -398,6 +430,21 @@ export default function Achievements({ selectedGame, onChangeGame }) {
                 </div>
               )}
             </div>
+
+            {instantError && (
+              <div className="timer-execution-message danger" role="alert">
+                <strong>Instant queue did not start.</strong>
+                <span>{instantError}</span>
+              </div>
+            )}
+
+            {instantOutcome && (
+              <div className={`timer-execution-message ${instantOutcomeTone}`} role={instantOutcomeTone === 'danger' ? 'alert' : 'status'}>
+                <strong>{instantOutcome.state === 'verified' ? 'Steam verification complete.' : instantOutcome.state === 'verification-pending' ? 'Steam confirmation pending.' : 'Instant execution failed.'}</strong>
+                <span>{instantOutcome.message}</span>
+                {instantOutcome.errorCode && <small>Code: {instantOutcome.errorCode}</small>}
+              </div>
+            )}
 
             {timerStatus.queue.length > 0 && (
               <div style={{ marginTop: 16 }}>

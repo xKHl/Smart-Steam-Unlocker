@@ -77,7 +77,7 @@ export default function Sidebar({ steamStatus, selectedGame, version }) {
           </div>
         </div>
         <div className="sidebar-credit-links">
-          <button type="button" onClick={() => openExternal('https://github.com/xKHl/Smart-Steam-Unlocker')} aria-label="Open the Smart Steam Unlocker GitHub repository in your browser"><Github size={12} /> GitHub</button>
+          <button type="button" onClick={() => openExternal('https://github.com/xKHl')} aria-label="Open Khalid Alotaibi's GitHub profile in your browser"><Github size={12} /> GitHub</button>
           <button type="button" onClick={() => openExternal('https://alotaibi.dev')} aria-label="Open Khalid Alotaibi website in your browser"><Globe2 size={12} /> Website</button>
         </div>
         <p className="sidebar-credit-copyright">© 2026 Khalid Alotaibi</p>

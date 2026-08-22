@@ -559,11 +559,9 @@ async function unlockAchievement(achievementId, expectedAppId = null) {
         attemptNum++;
       }
       if (success) {
-        // console.log(`[SteamManager] ✓ Unlocked: ${achievementId}`);
-        // Preserve Instant mode's immediate refresh after the valid local store.
-        // Humanized mode supplies expectedAppId and deliberately waits for the
-        // independent verifier before publishing a renderer/cache unlock update.
-        if (!expectedAppId) publishAchievementUnlocked(targetAppId, achievementId);
+        // Activation acceptance is not remote proof. Both Instant and Humanized
+        // callers now publish renderer/cache state only after their independent
+        // verification path confirms Steam's reported unlock state.
       } else {
         errorMsg = `Activation returned false after ${attemptNum} attempt(s)`;
         errorCode = 'ACTIVATION_REJECTED';

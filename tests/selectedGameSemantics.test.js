@@ -109,9 +109,13 @@ test('author ownership branding is visible in Sidebar and Settings through the t
     assert.match(ui, /Smart Steam Unlocker/);
     assert.match(ui, /© 2026 Khalid Alotaibi/);
     assert.match(ui, /window\.steamAPI\?\.app\?\.openExternal/);
-    assert.match(ui, /https:\/\/github\.com\/xKHl\/Smart-Steam-Unlocker/);
     assert.match(ui, /https:\/\/alotaibi\.dev/);
   }
+  // The compact creator card represents its author, while Settings explicitly
+  // labels its distinct link as the project repository.
+  assert.match(sidebar, /https:\/\/github\.com\/xKHl'/);
+  assert.doesNotMatch(sidebar, /github\.com\/xKHl\/Smart-Steam-Unlocker/);
+  assert.match(settings, /https:\/\/github\.com\/xKHl\/Smart-Steam-Unlocker/);
 
   assert.match(sidebar, /sidebar-credit/);
   assert.match(sidebar, /GitHub<\/button>/);
@@ -119,6 +123,7 @@ test('author ownership branding is visible in Sidebar and Settings through the t
   assert.match(settings, /ABOUT &amp; CREDITS/);
   assert.match(settings, /Created by Khalid Alotaibi/);
   assert.match(settings, /GitHub Repository/);
+  assert.match(handlers, /'https:\/\/github\.com\/xKHl'/);
   assert.match(handlers, /'https:\/\/github\.com\/xKHl\/Smart-Steam-Unlocker'/);
   assert.match(handlers, /'https:\/\/alotaibi\.dev'/);
   assert.match(preload, /openExternal:\s+\(url\) => ipcRenderer\.invoke\('app:open-external', url\)/);

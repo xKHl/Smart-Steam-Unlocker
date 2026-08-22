@@ -2466,3 +2466,21 @@ textarea { user-select: text; }
   .integrity-steps li { min-height: 52px; padding-block: 8px; }
   .integrity-game-list { max-height: calc(100vh - 310px); min-height: 180px; }
 }
+
+/* ── Instant execution result state ───────────────────────────────────────── */
+.timer-execution-message {
+  display: grid;
+  gap: 3px;
+  margin-top: 14px;
+  padding: 11px 12px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  font-size: 12px;
+  line-height: 1.45;
+}
+.timer-execution-message strong { color: var(--text-primary); }
+.timer-execution-message span { color: var(--text-secondary); }
+.timer-execution-message small { color: var(--text-muted); font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 10px; }
+.timer-execution-message.success { border-color: rgba(74, 222, 128, .35); background: rgba(74, 222, 128, .07); }
+.timer-execution-message.warning { border-color: rgba(250, 204, 21, .36); background: rgba(250, 204, 21, .07); }
+.timer-execution-message.danger { border-color: rgba(248, 113, 113, .4); background: rgba(248, 113, 113, .08); }

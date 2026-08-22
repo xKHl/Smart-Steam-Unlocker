@@ -14,6 +14,7 @@ import {
 } from 'lucide-react';
 import { itemStatusPresentation, verificationPresentation } from '../lib/humanizedVerificationPresentation.mjs';
 import { shouldRefreshHumanizedCountdown } from '../lib/humanizedCountdownRefresh.mjs';
+import { projectExecutionAchievements } from '../lib/executionAchievementPayload.mjs';
 import {
   DEFAULT_TIMING_PRESET,
   HUMANIZED_TIMING_PRESETS,
@@ -166,7 +167,9 @@ export default function HumanizedSchedulePanel({ selectedGame, achievements, sel
     invoke(async () => {
       const result = await window.steamAPI.humanized.create({
         appId: selectedGame.appId,
-        achievements: selectedAchievements,
+        // The renderer keeps read-only display evidence (such as unlockTime)
+        // alongside achievements. Scheduler IPC receives canonical fields only.
+        achievements: projectExecutionAchievements(selectedAchievements),
         orderMode,
         seed: seed.trim() || 'humanized-schedule',
         startAt: Date.now(),

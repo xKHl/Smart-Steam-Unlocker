@@ -15,6 +15,9 @@ let varianceMins = 0;
 let fixedMins = null;
 let totalInQueue = 0;
 let unlockedCount = 0;
+// Last user-visible Instant execution state. A failed or unverified item remains
+// in the queue; it must never silently disappear from the renderer.
+let lastOutcome = null;
 let tickInterval = null;
 
 // Guard: prevents concurrent unlockNext() calls from overlapping.
@@ -70,6 +73,7 @@ function init() {
       currentCountdown = savedState.currentCountdown || 0;
       totalInQueue = savedState.totalInQueue || 0;
       unlockedCount = savedState.unlockedCount || 0;
+      lastOutcome = savedState.lastOutcome || null;
       isActive = false; // Always start paused on app boot
       synchronizeQueueLeases();
       // console.log(`[TimerService] Restored queue for AppID ${savedState.appId}.`);
@@ -90,6 +94,7 @@ function saveState() {
     currentCountdown,
     totalInQueue,
     unlockedCount,
+    lastOutcome,
   });
 }
 
@@ -114,6 +119,7 @@ function getStatus() {
     fixedMins,
     totalInQueue,
     unlockedCount,
+    lastOutcome,
   };
 }
 
@@ -181,47 +187,74 @@ async function unlockNext() {
 
   let result;
   try {
-    result = await steamManager.unlockAchievement(achievement.id);
+    result = await steamManager.unlockAchievement(achievement.id, activeAppId);
   } catch (err) {
     // steamManager should never throw (it catches internally), but be safe
     result = { success: false, achievementId: achievement.id, error: err.message };
-  } finally {
-    // Release the lock unconditionally
-    isUnlocking = false;
   }
 
+  try {
   if (result.success) {
-    queue.shift(); // Remove the successfully unlocked item
-    unlockedCount++;
-    synchronizeQueueLeases(); // Completed items deterministically release their lease.
-    // console.log(`[TimerService] ✓ Unlocked ${result.achievementId} (${unlockedCount}/${totalInQueue})`);
+    // Native activation only confirms that steamworks accepted the call. Use the
+    // established read-only verifier before publishing the renderer/cache update.
+    let verification;
+    try {
+      verification = await steamManager.getAchievementVerification(activeAppId, achievement.id);
+    } catch (error) {
+      verification = { success: false, errorCode: 'VERIFICATION_EXCEPTION', error: error instanceof Error ? error.message : String(error) };
+    }
 
-    if (queue.length > 0 && isActive) {
-      // Arm the countdown for the next achievement
-      currentCountdown = calculateNextDelay();
-      // console.log(`[TimerService] Next unlock in ${currentCountdown}s — "${queue[0].name || queue[0].id}"`);
-      saveState();
-      emitUpdate();
+    if (verification?.success && verification.unlocked) {
+      steamManager.confirmVerifiedAchievement(activeAppId, achievement.id);
+      queue.shift(); // Remove only after remote Steam confirmation.
+      unlockedCount++;
+      lastOutcome = {
+        state: 'verified',
+        achievementId: achievement.id,
+        message: `Steam remotely verified ${achievement.name || achievement.id} as unlocked.`,
+        errorCode: null,
+      };
+      synchronizeQueueLeases(); // Completed items deterministically release their lease.
 
-      // ── CRITICAL: ensure the tick loop is still alive ──────────────────
-      // If a previous Steamworks hang blocked the event loop long enough
-      // for the interval to have been cleared, restart it now so the
-      // countdown actually ticks down instead of sitting frozen forever.
-      if (!tickInterval) {
-        // console.warn('[TimerService] Tick interval was dead — restarting it now.');
-        startTickLoop();
+      if (queue.length > 0 && isActive) {
+        currentCountdown = calculateNextDelay();
+        saveState();
+        emitUpdate();
+        if (!tickInterval) startTickLoop();
+      } else {
+        stopQueue();
       }
     } else {
-      // console.log('[TimerService] Queue finished.');
+      // Activation may have reached Steam, but there is no remote confirmation.
+      // Keep the item visible and paused instead of consuming it as a success.
+      lastOutcome = {
+        state: 'verification-pending',
+        achievementId: achievement.id,
+        message: verification?.success
+          ? 'Steam accepted activation, but has not yet reported the achievement as unlocked. The item remains queued for review.'
+          : `Steam accepted activation, but remote verification is unavailable: ${verification?.error || 'unknown verification error'}`,
+        errorCode: verification?.errorCode || 'VERIFICATION_UNAVAILABLE',
+      };
+      currentCountdown = 0;
       stopQueue();
     }
   } else {
-    // A terminal failure releases this item. Remaining queued items stay paused
-    // and retain their leases so a later resume cannot conflict with Humanized.
-    queue.shift();
-    synchronizeQueueLeases();
-    // console.error(`[TimerService] ✗ Failed to unlock ${achievement.id}:`, result.error);
+    // Do not consume a failed selected achievement. It stays visible in the
+    // paused queue together with an actionable Steam error and error code.
+    lastOutcome = {
+      state: result?.operationMayHaveApplied ? 'verification-pending' : 'failed',
+      achievementId: achievement.id,
+      message: result?.operationMayHaveApplied
+        ? `${result?.error || 'Steam execution state is uncertain.'} The item remains queued because activation may have reached Steam.`
+        : (result?.error || 'Steam could not unlock this achievement. The item remains queued.'),
+      errorCode: result?.errorCode || 'STEAM_EXECUTION_FAILED',
+    };
+    currentCountdown = 0;
     stopQueue();
+  }
+  } finally {
+    // Do not release the lock until activation and remote verification finish.
+    isUnlocking = false;
   }
 }
 
@@ -267,12 +300,13 @@ function startQueue(achievements, multiplier, variance, overrideMins = null) {
     leaseOwnerId = nextOwnerId;
     totalInQueue = achievements.length;
     unlockedCount = 0;
+    lastOutcome = null;
     currentCountdown = calculateNextDelay();
   } else if (queue.length > 0) {
     synchronizeQueueLeases();
   }
 
-  if (queue.length === 0) return;
+  if (queue.length === 0) return getStatus();
 
   isActive = true;
   synchronizeQueueLeases();
@@ -280,6 +314,7 @@ function startQueue(achievements, multiplier, variance, overrideMins = null) {
   
   startTickLoop();
   emitUpdate();
+  return getStatus();
 }
 
 function stopQueue() {
@@ -289,6 +324,7 @@ function stopQueue() {
   synchronizeQueueLeases();
   saveState();
   emitUpdate();
+  return getStatus();
 }
 
 function clearQueue() {
@@ -299,9 +335,11 @@ function clearQueue() {
   currentCountdown = 0;
   totalInQueue = 0;
   unlockedCount = 0;
+  lastOutcome = null;
   fixedMins = null;
   settingsStore.delete('timerState');
   emitUpdate();
+  return getStatus();
 }
 
 module.exports = {
