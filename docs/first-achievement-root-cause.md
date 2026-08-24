@@ -1,4 +1,6 @@
-# First-Achievement Failure — Root Cause Analysis
+# First-Achievement Failure — Historical Root-Cause Investigation
+
+> **Historical investigation — not a current-state specification.** This report records an earlier readiness analysis and proposed remedies. Current implementation, tests, [Architecture](ARCHITECTURE.md), and [Project Status](PROJECT_STATUS.md) are authoritative for continuation work.
 
 ## Evidence
 

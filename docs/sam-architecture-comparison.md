@@ -1,6 +1,8 @@
 # SAM vs Smart Steam Unlocker — Deep Architecture Comparison
 
-**Branch:** `feature/humanized-scheduler` · **Version:** `0.2.2` · **Date:** 2026-08-20
+> **Historical investigation — not a current-state specification.** This v0.2.2 report records the evidence and hypotheses available on 2026-08-20. Compare its conclusions with current source, tests, [Architecture](ARCHITECTURE.md), and [Project Status](PROJECT_STATUS.md) before acting on any recommendation.
+>
+> **Branch at time of report:** `feature/humanized-scheduler` · **Version at time of report:** `0.2.2` · **Date:** 2026-08-20
 
 ---
 
