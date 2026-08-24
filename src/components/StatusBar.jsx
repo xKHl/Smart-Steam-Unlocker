@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { Circle } from 'lucide-react';
+import { useI18n } from '../i18n';
 
 /**
  * StatusBar — Slim bottom bar showing live Steam state and app metadata.
@@ -9,6 +10,7 @@ import { Circle } from 'lucide-react';
  *  • Right — App version + live clock (HH:MM)
  */
 export default function StatusBar({ steamStatus, version }) {
+  const { locale, t } = useI18n();
   const [time, setTime] = useState(new Date());
 
   // Tick the clock every minute
@@ -21,8 +23,8 @@ export default function StatusBar({ steamStatus, version }) {
   const dotColor  = connected ? '#4ade80' : '#f87171';
   const textClass = connected ? 'text-green-400' : 'text-red-400';
   const statusMsg = connected
-    ? `Steam Connected${steamStatus.playerName ? ` · ${steamStatus.playerName}` : ''}`
-    : 'Steam Disconnected — Open Steam and restart';
+    ? `${t('status.connected')}${steamStatus.playerName ? ` · ${steamStatus.playerName}` : ''}`
+    : t('status.disconnected');
 
   return (
     <footer className="status-bar" role="status" aria-live="polite">
@@ -39,7 +41,7 @@ export default function StatusBar({ steamStatus, version }) {
         {version && <span>v{version}</span>}
         {version && <span className="status-divider">·</span>}
         <span>
-          {time.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+          {time.toLocaleTimeString(locale === 'ar' ? 'ar-SA' : 'en-US', { hour: '2-digit', minute: '2-digit' })}
         </span>
       </div>
     </footer>

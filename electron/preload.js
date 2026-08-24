@@ -49,10 +49,19 @@ contextBridge.exposeInMainWorld('steamAPI', {
     unlockAchievement: (appId, achievementId) =>
       ipcRenderer.invoke('steam:unlock-achievement', { appId, achievementId }),
 
+    relockAchievement: (appId, achievementId) =>
+      ipcRenderer.invoke('steam:relock-achievement', { appId, achievementId }),
+
     onAchievementUnlocked: (cb) => {
       const listener = (_e, achievementId) => cb(achievementId);
       ipcRenderer.on('steam:achievement-unlocked', listener);
       return () => ipcRenderer.removeListener('steam:achievement-unlocked', listener);
+    },
+
+    onAchievementRelocked: (cb) => {
+      const listener = (_e, achievementId) => cb(achievementId);
+      ipcRenderer.on('steam:achievement-relocked', listener);
+      return () => ipcRenderer.removeListener('steam:achievement-relocked', listener);
     },
   },
 
@@ -115,6 +124,8 @@ contextBridge.exposeInMainWorld('steamAPI', {
   // ─── App ───────────────────────────────────────────────────────────────────
   app: {
     getVersion:     () => ipcRenderer.invoke('app:get-version'),
+    getLocale:      () => ipcRenderer.invoke('app:get-locale'),
+    setLocale:      (locale) => ipcRenderer.invoke('app:set-locale', locale),
     getInitialState: () => ipcRenderer.invoke('app:get-initial-state'),
     getDiagnosticsStatus: () => ipcRenderer.invoke('app:get-diagnostics-status'),
     traceInteraction: (payload) => ipcRenderer.invoke('app:trace-interaction', payload),

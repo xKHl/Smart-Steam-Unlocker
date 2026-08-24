@@ -97,8 +97,8 @@ describe('single-achievement Instant result flow', () => {
     const clearSelectionIndex = startHandler.indexOf('setSelectedIds(new Set())');
     assert.ok(awaitIndex >= 0 && clearSelectionIndex > awaitIndex, 'selection must clear only after queue IPC acknowledgement');
     assert.match(page, /Instant queue did not start/);
-    assert.match(page, /Steam verification complete/);
-    assert.match(page, /Steam confirmation pending/);
+    assert.match(page, /t\('achievements\.confirmationComplete'\)/);
+    assert.match(page, /t\('achievements\.confirmationPending'\)/);
   });
 
   test('the backend keeps the selected item and actionable result when activation or verification fails', () => {
@@ -125,7 +125,7 @@ describe('creator profile versus project repository links', () => {
 
     assert.match(sidebar, /openExternal\('https:\/\/github\.com\/xKHl'\)/);
     assert.doesNotMatch(sidebar, /github\.com\/xKHl\/Smart-Steam-Unlocker/);
-    assert.match(settings, /GitHub Repository/);
+    assert.match(settings, /t\('settings\.repository'\)/);
     assert.match(settings, /https:\/\/github\.com\/xKHl\/Smart-Steam-Unlocker/);
     assert.match(handlers, /'https:\/\/github\.com\/xKHl'/);
     assert.match(handlers, /'https:\/\/github\.com\/xKHl\/Smart-Steam-Unlocker'/);

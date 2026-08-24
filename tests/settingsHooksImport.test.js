@@ -11,9 +11,12 @@ test('Settings imports every React hook it invokes so credential status states r
   assert.ok(importMatch, 'Settings must import React hooks from react.');
   const importedHooks = new Set(importMatch[1].split(',').map((value) => value.trim()));
   const invokedHooks = [...source.matchAll(/\b(use[A-Z][A-Za-z0-9]*)\s*\(/g)].map((match) => match[1]);
+  const nonReactHooks = new Set(['useI18n']);
 
   for (const hook of new Set(invokedHooks)) {
+    if (nonReactHooks.has(hook)) continue;
     assert.ok(importedHooks.has(hook), `Settings invokes ${hook} but does not import it from react.`);
   }
+  assert.match(source, /import\s+\{\s*useI18n\s*\}\s+from\s+['"]\.\.\/i18n['"]/);
   assert.ok(source.includes('window.steamAPI?.credentials.getStatus()'), 'Settings must retain the credential-status UI path.');
 });

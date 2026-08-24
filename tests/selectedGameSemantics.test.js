@@ -37,7 +37,7 @@ test('first run remains library-led and does not open achievement data without a
   assert.match(dashboard, /Choose a game from your Steam library to view its achievement progress\./);
   assert.match(dashboard, /Browse Library/);
   assert.match(achievements, /if \(!selectedGame\) return undefined;/);
-  assert.match(achievements, /Select a game from your library to browse its achievements\./);
+  assert.match(achievements, /t\('achievements\.selectGame'\)/);
   assert.match(achievements, /id="btn-go-to-library"/);
 });
 
@@ -55,7 +55,7 @@ test('selected-game and activity labels remain truthful and independent', () => 
   assert.match(dashboard, /No recent activity reported by Steam/);
   assert.doesNotMatch(dashboard, /label: 'Last Activity'/);
   assert.doesNotMatch(dashboard, /Steam library data has no reliable last-played timestamp/);
-  assert.match(sidebar, />Selected Game</);
+  assert.match(sidebar, /t\('nav\.selectedGame'\)/);
   assert.match(card, /aria-label="Selected game"/);
   assert.match(card, />\s*Selected\s*</);
   assert.doesNotMatch(steamManager, /rtime_last_played/);
@@ -120,9 +120,9 @@ test('author ownership branding is visible in Sidebar and Settings through the t
   assert.match(sidebar, /sidebar-credit/);
   assert.match(sidebar, /GitHub<\/button>/);
   assert.match(sidebar, /Website<\/button>/);
-  assert.match(settings, /ABOUT &amp; CREDITS/);
+  assert.match(settings, /t\('settings\.about'\)/);
   assert.match(settings, /Created by Khalid Alotaibi/);
-  assert.match(settings, /GitHub Repository/);
+  assert.match(settings, /t\('settings\.repository'\)/);
   assert.match(handlers, /'https:\/\/github\.com\/xKHl'/);
   assert.match(handlers, /'https:\/\/github\.com\/xKHl\/Smart-Steam-Unlocker'/);
   assert.match(handlers, /'https:\/\/alotaibi\.dev'/);

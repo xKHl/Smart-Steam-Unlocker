@@ -9,12 +9,14 @@ import Achievements from './pages/Achievements';
 import TradingCards from './pages/TradingCards';
 import Settings     from './pages/Settings';
 import AchievementIntegrity from './pages/AchievementIntegrity';
+import { useI18n } from './i18n';
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Switching Overlay — shown for ~700ms during app.relaunch() cycle
 // ─────────────────────────────────────────────────────────────────────────────
 
 function SwitchingOverlay({ game }) {
+  const { t } = useI18n();
   return (
     <div className="switching-overlay" role="status" aria-live="assertive">
       <div className="switching-card">
@@ -27,8 +29,8 @@ function SwitchingOverlay({ game }) {
           />
         )}
         <div className="switching-spinner" aria-hidden="true" />
-        <p className="switching-title">Switching to {game?.name ?? 'selected game'}…</p>
-        <p className="switching-sub">Restarting Steam context. This only takes a moment.</p>
+        <p className="switching-title">{t('achievements.changeGame')}: {game?.name ?? t('nav.selectedGame')}…</p>
+        <p className="switching-sub">{t('achievements.steamContext')}</p>
       </div>
     </div>
   );

@@ -21,6 +21,7 @@ const {
   sanitizeSwitchGamePayload,
   sanitizeTimerPayload,
   sanitizeUnlockPayload,
+  sanitizeRelockPayload,
 } = require('./validation');
 const runtimeDiagnostics = require('../runtimeDiagnostics');
 const { traceHandler } = runtimeDiagnostics;
@@ -197,6 +198,21 @@ function registerIpcHandlers() {
     return steamManager.unlockAchievement(achievementId, appId);
   });
 
+  registerHandler('steam:relock-achievement', (_e, payload) => {
+    const { appId, achievementId } = sanitizeRelockPayload(payload);
+    const schedule = humanizedService.getStatus()?.schedule;
+    if (schedule?.state === 'running') {
+      return {
+        success: false,
+        appId,
+        achievementId,
+        error: 'Pause the active Humanized schedule before relocking achievements.',
+        errorCode: 'HUMANIZED_SCHEDULE_RUNNING',
+      };
+    }
+    return steamManager.relockAchievement(achievementId, appId);
+  });
+
   // ─── Trading Cards (separate Steam launch monitor) ────────────────────────
   registerHandler('trading-cards:get-library', async (_e, options) => {
     const { forceRefresh } = sanitizeOwnedGamesOptions(options);
@@ -280,8 +296,17 @@ function registerIpcHandlers() {
     return status;
   });
 
-  // ─── App Info ─────────────────────────────────────────────────────────────
+  // ─── App Info and local preferences ──────────────────────────────────────
   registerHandler('app:get-version', () => app.getVersion());
+  registerHandler('app:get-locale', () => {
+    const locale = settingsStore.get('locale');
+    return locale === 'ar' ? 'ar' : 'en';
+  });
+  registerHandler('app:set-locale', (_event, value) => {
+    if (value !== 'en' && value !== 'ar') throw new Error('Locale is not supported.');
+    settingsStore.set('locale', value);
+    return value;
+  });
   // A persisted game may be required by background schedule/Steam safety checks,
   // but active renderer selection is always an explicit per-session user choice.
   registerHandler('app:get-initial-state', () => ({ selectedGame: null }));

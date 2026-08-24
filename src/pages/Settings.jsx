@@ -3,6 +3,7 @@ import {
   Key, Eye, EyeOff, Save, Check, Loader2,
   AlertCircle, ExternalLink, Github, Globe2, ShieldCheck, RefreshCw, Trash2,
 } from 'lucide-react';
+import { useI18n } from '../i18n';
 
 const ERROR_MESSAGES = {
   NO_API_KEY: 'No API key is stored yet.',
@@ -20,6 +21,7 @@ const ERROR_MESSAGES = {
  * process, which persists it through Electron secure storage.
  */
 export default function Settings() {
+  const { locale, setLocale, t } = useI18n();
   const [apiKeyEntry, setApiKeyEntry] = useState('');
   const [credentialStatus, setCredentialStatus] = useState({ hasKey: false, storage: 'unknown', migrationPending: false, maskedLastFour: null });
   const [showKey, setShowKey] = useState(false);
@@ -99,8 +101,22 @@ export default function Settings() {
     <div className="page-container animate-fade-in">
       <div className="page-header">
         <div>
-          <h1 className="page-title">Settings</h1>
-          <p className="page-sub">Configure a Steam Web API key to unlock the full game library.</p>
+          <h1 className="page-title">{t('settings.title')}</h1>
+          <p className="page-sub">{t('settings.subtitle')}</p>
+        </div>
+      </div>
+
+      <div className="settings-card settings-language-card">
+        <div className="settings-card-header">
+          <div className="settings-icon-wrap"><Globe2 size={18} color="#a78bfa" /></div>
+          <div>
+            <h2 className="settings-section-title">{t('settings.languageTitle')}</h2>
+            <p className="settings-section-sub">{t('settings.languageSub')}</p>
+          </div>
+        </div>
+        <div className="settings-actions" role="group" aria-label={t('settings.languageTitle')}>
+          <button type="button" className={`btn-secondary${locale === 'en' ? ' active-language-choice' : ''}`} onClick={() => setLocale('en')} aria-pressed={locale === 'en'}>{t('app.english')}</button>
+          <button type="button" className={`btn-secondary${locale === 'ar' ? ' active-language-choice' : ''}`} onClick={() => setLocale('ar')} aria-pressed={locale === 'ar'}>{t('app.arabic')}</button>
         </div>
       </div>
 
@@ -108,7 +124,7 @@ export default function Settings() {
         <div className="settings-card-header">
           <div className="settings-icon-wrap"><Key size={18} color="#a78bfa" /></div>
           <div>
-            <h2 className="settings-section-title">Steam Web API Key</h2>
+            <h2 className="settings-section-title">{t('settings.apiKey')}</h2>
             <p className="settings-section-sub">Stored in operating-system-backed encrypted storage. The app never displays a saved key.</p>
           </div>
         </div>
@@ -148,16 +164,16 @@ export default function Settings() {
         <div className="settings-actions">
           <button id="btn-save-api-key" className="hero-cta" onClick={handleSave} disabled={!apiKeyEntry.trim() || saving || secureStorageUnavailable} type="button">
             {saving ? <Loader2 size={14} className="spin" /> : saved ? <Check size={14} /> : <Save size={14} />}
-            {saved ? 'Saved securely' : saving ? 'Saving…' : credentialStatus.hasKey ? 'Replace key' : 'Save key'}
+            {saved ? t('settings.savedSecurely') : saving ? t('common.loading') : credentialStatus.hasKey ? t('settings.replaceKey') : t('settings.saveKey')}
           </button>
           <button id="btn-test-connection" className="btn-secondary" onClick={handleTest} disabled={!credentialStatus.hasKey || testing} type="button">
             {testing ? <Loader2 size={13} className="spin" /> : <RefreshCw size={13} />}
-            {testing ? 'Testing…' : 'Test Connection'}
+            {testing ? t('common.loading') : t('settings.testConnection')}
           </button>
           {credentialStatus.hasKey && (
             <button className="btn-danger" onClick={handleClear} disabled={clearing} type="button">
               {clearing ? <Loader2 size={13} className="spin" /> : <Trash2 size={13} />}
-              {clearing ? 'Clearing…' : 'Clear key'}
+              {clearing ? t('common.loading') : t('settings.clearKey')}
             </button>
           )}
         </div>
@@ -188,16 +204,16 @@ export default function Settings() {
         <div className="settings-card-header">
           <div className="settings-about-monogram" aria-hidden="true">KA</div>
           <div>
-            <p className="settings-about-eyebrow">ABOUT &amp; CREDITS</p>
+            <p className="settings-about-eyebrow">{t('settings.about')}</p>
             <h2 id="settings-about-title" className="settings-section-title">Smart Steam Unlocker</h2>
             <p className="settings-section-sub">Created by Khalid Alotaibi</p>
           </div>
         </div>
-        <p className="settings-about-description">A focused Steam achievement companion designed around clear progress, safe automation controls, and transparent Steam state.</p>
-        <div className="settings-about-links" role="group" aria-label="Project links">
+            <p className="settings-about-description">A focused Steam achievement companion designed around clear progress, safe automation controls, and transparent Steam state.</p>
+        <div className="settings-about-links" role="group" aria-label={t('settings.projectLinks')}>
           <button type="button" className="settings-about-link" onClick={() => openExternal('https://github.com/xKHl/Smart-Steam-Unlocker')}>
             <Github size={15} />
-            <span><strong>GitHub Repository</strong><small>github.com/xKHl/Smart-Steam-Unlocker</small></span>
+            <span><strong>{t('settings.repository')}</strong><small>github.com/xKHl/Smart-Steam-Unlocker</small></span>
             <ExternalLink size={13} aria-hidden="true" />
           </button>
           <button type="button" className="settings-about-link" onClick={() => openExternal('https://alotaibi.dev')}>

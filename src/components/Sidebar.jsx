@@ -1,17 +1,19 @@
 import React from 'react';
 import { NavLink } from 'react-router-dom';
 import { Activity, CreditCard, Github, Globe2, LayoutDashboard, Library, Trophy, Settings, Zap } from 'lucide-react';
+import { useI18n } from '../i18n';
 
 const NAV_LINKS = [
-  { to: '/',             icon: LayoutDashboard, label: 'Dashboard',    id: 'nav-dashboard',    end: true  },
-  { to: '/library',      icon: Library,         label: 'Library',      id: 'nav-library',      end: false },
-  { to: '/achievements', icon: Trophy,          label: 'Achievements', id: 'nav-achievements', end: false },
-  { to: '/trading-cards', icon: CreditCard,      label: 'Trading Cards', id: 'nav-trading-cards', end: false },
-  { to: '/integrity',    icon: Activity,        label: 'Integrity',    id: 'nav-integrity',     end: false },
-  { to: '/settings',     icon: Settings,        label: 'Settings',     id: 'nav-settings',     end: false },
+  { to: '/',             icon: LayoutDashboard, labelKey: 'nav.dashboard',    id: 'nav-dashboard',    end: true  },
+  { to: '/library',      icon: Library,         labelKey: 'nav.library',      id: 'nav-library',      end: false },
+  { to: '/achievements', icon: Trophy,          labelKey: 'nav.achievements', id: 'nav-achievements', end: false },
+  { to: '/trading-cards', icon: CreditCard,      labelKey: 'nav.tradingCards', id: 'nav-trading-cards', end: false },
+  { to: '/integrity',    icon: Activity,        labelKey: 'nav.integrity',    id: 'nav-integrity',     end: false },
+  { to: '/settings',     icon: Settings,        labelKey: 'nav.settings',     id: 'nav-settings',     end: false },
 ];
 
 export default function Sidebar({ steamStatus, selectedGame, version }) {
+  const { t } = useI18n();
   const openExternal = (url) => {
     window.steamAPI?.app?.openExternal(url).catch(() => {});
   };
@@ -32,9 +34,9 @@ export default function Sidebar({ steamStatus, selectedGame, version }) {
 
       <div className="sidebar-navigation-region">
         {/* ── Navigation ───────────────────────────────────────────────────── */}
-        <nav className="sidebar-nav" aria-label="Main navigation">
-          <p className="nav-section-label">Navigation</p>
-          {NAV_LINKS.map(({ to, icon: Icon, label, id, end }) => (
+        <nav className="sidebar-nav" aria-label={t('nav.navigation')}>
+          <p className="nav-section-label">{t('nav.navigation')}</p>
+          {NAV_LINKS.map(({ to, icon: Icon, labelKey, id, end }) => (
             <NavLink
               key={id}
               to={to}
@@ -43,7 +45,7 @@ export default function Sidebar({ steamStatus, selectedGame, version }) {
               className={({ isActive }) => `nav-link${isActive ? ' nav-link-active' : ''}`}
             >
               <Icon size={16} aria-hidden="true" />
-              <span>{label}</span>
+              <span>{t(labelKey)}</span>
             </NavLink>
           ))}
         </nav>
@@ -51,7 +53,7 @@ export default function Sidebar({ steamStatus, selectedGame, version }) {
         {/* ── Selected Game ───────────────────────────────────────────────── */}
         {selectedGame && (
           <div className="sidebar-active-game">
-            <p className="nav-section-label" style={{ paddingBottom: 8 }}>Selected Game</p>
+            <p className="nav-section-label" style={{ paddingBottom: 8 }}>{t('nav.selectedGame')}</p>
             <div className="active-game-card">
               <img
                 src={selectedGame.headerImage}
@@ -88,12 +90,12 @@ export default function Sidebar({ steamStatus, selectedGame, version }) {
         <div
           className={`steam-status-card ${steamStatus.connected ? 'connected' : 'disconnected'}`}
           role="status"
-          aria-label={steamStatus.connected ? 'Steam connected' : 'Steam disconnected'}
+          aria-label={steamStatus.connected ? t('status.connected') : t('status.disconnected')}
         >
           <div className="steam-status-dot" />
           <div style={{ minWidth: 0 }}>
             <p className="steam-status-label">
-              {steamStatus.connected ? 'Steam Connected' : 'Steam Offline'}
+              {steamStatus.connected ? t('status.connected') : t('status.disconnected')}
             </p>
             {steamStatus.playerName && (
               <p className="steam-username" title={steamStatus.playerName}>

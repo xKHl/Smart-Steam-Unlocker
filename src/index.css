@@ -2484,3 +2484,113 @@ textarea { user-select: text; }
 .timer-execution-message.success { border-color: rgba(74, 222, 128, .35); background: rgba(74, 222, 128, .07); }
 .timer-execution-message.warning { border-color: rgba(250, 204, 21, .36); background: rgba(250, 204, 21, .07); }
 .timer-execution-message.danger { border-color: rgba(248, 113, 113, .4); background: rgba(248, 113, 113, .08); }
+
+/* ─── Achievement Relock ────────────────────────────────────────────────── */
+.achievement-relock-control {
+  margin-inline-start: auto;
+  display: flex;
+  align-items: center;
+  flex-shrink: 0;
+}
+
+.achievement-relock-button {
+  gap: 6px;
+  padding: 5px 9px;
+  font-size: 11px;
+  white-space: nowrap;
+}
+
+.relock-dialog-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 100;
+  display: grid;
+  place-items: center;
+  padding: 24px;
+  background: rgba(2, 6, 23, 0.7);
+  backdrop-filter: blur(4px);
+}
+
+.relock-dialog {
+  width: min(460px, 100%);
+  padding: 24px;
+  border: 1px solid rgba(248, 113, 113, 0.36);
+  border-radius: 14px;
+  background: var(--bg-card, #111827);
+  box-shadow: 0 24px 72px rgba(0, 0, 0, 0.46);
+}
+
+.relock-dialog h2 {
+  margin: 0 0 10px;
+  color: var(--text-primary);
+  font-size: 18px;
+}
+
+.relock-dialog p {
+  margin: 0;
+  color: var(--text-secondary);
+  line-height: 1.6;
+}
+
+.relock-dialog-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 10px;
+  margin-top: 22px;
+}
+
+@media (max-width: 540px) {
+  .achievement-card { align-items: flex-start; }
+  .achievement-relock-control { margin-inline-start: 0; }
+}
+
+/* ─── Arabic RTL localization ───────────────────────────────────────────── */
+html[dir='rtl'] body {
+  font-family: Tahoma, 'Segoe UI', Arial, sans-serif;
+  text-align: right;
+}
+
+html[dir='rtl'] .app-body { flex-direction: row-reverse; }
+html[dir='rtl'] .sidebar { border-right: 0; border-left: 1px solid var(--border); }
+html[dir='rtl'] .titlebar { flex-direction: row-reverse; }
+html[dir='rtl'] .titlebar-left { padding-left: 0; padding-right: 14px; }
+html[dir='rtl'] .window-controls { flex-direction: row-reverse; }
+html[dir='rtl'] .nav-link-active::before { left: auto; right: 0; border-radius: 3px 0 0 3px; }
+html[dir='rtl'] .nav-badge-soon,
+html[dir='rtl'] .achievement-relock-control { margin-left: 0; margin-right: auto; }
+html[dir='rtl'] .page-header,
+html[dir='rtl'] .toolbar,
+html[dir='rtl'] .timer-panel-header,
+html[dir='rtl'] .timer-actions,
+html[dir='rtl'] .settings-actions,
+html[dir='rtl'] .relock-dialog-actions { flex-direction: row-reverse; }
+html[dir='rtl'] .page-header { text-align: right; }
+html[dir='rtl'] .achievement-card,
+html[dir='rtl'] .settings-card-header,
+html[dir='rtl'] .sidebar-credit-heading,
+html[dir='rtl'] .steam-status-card,
+html[dir='rtl'] .selected-game-banner-info { text-align: right; }
+html[dir='rtl'] .achievement-grid { direction: rtl; }
+html[dir='rtl'] .achievement-card { direction: rtl; }
+html[dir='rtl'] .search-wrap { direction: rtl; }
+html[dir='rtl'] .search-input,
+html[dir='rtl'] input,
+html[dir='rtl'] textarea,
+html[dir='rtl'] select { text-align: right; }
+html[dir='rtl'] .api-key-input,
+html[dir='rtl'] .inline-code { direction: ltr; text-align: left; }
+html[dir='rtl'] .timer-progress-bar { transform-origin: right center; }
+html[dir='rtl'] .timer-slider-label,
+html[dir='rtl'] .selected-game-banner-meta,
+html[dir='rtl'] .status-bar { direction: rtl; }
+html[dir='rtl'] .status-bar { flex-direction: row-reverse; }
+html[dir='rtl'] .relock-dialog { text-align: right; }
+html[dir='rtl'] .relock-dialog-actions { justify-content: flex-start; }
+html[dir='rtl'] .lucide-chevron-right,
+html[dir='rtl'] .directional-chevron { transform: scaleX(-1); }
+
+.active-language-choice {
+  color: #e9d5ff !important;
+  border-color: rgba(167, 139, 250, 0.6) !important;
+  background: rgba(124, 58, 237, 0.18) !important;
+}

@@ -138,6 +138,6 @@ test('Instant queue performs background verification only while pending and neve
   assert.match(timer, /isActive = Boolean\(pendingVerification\?\.autoContinue && queue\.length > 0\)/);
   assert.match(handlers, /timer:recheck-verification/);
   assert.match(preload, /recheckVerification: \(\) => ipcRenderer\.invoke\('timer:recheck-verification'\)/);
-  assert.match(page, /Recheck Steam confirmation/);
+  assert.match(page, /t\('achievements\.recheck'\)/);
   assert.match(page, /timerStatus\.pendingVerification/);
 });

@@ -19,6 +19,7 @@ const { createSteamApiClient, STEAM_READ_ERROR } = require('./steamApiClient');
 const runtimeDiagnostics = require('./runtimeDiagnostics');
 const { pollForVerifiedUnlock } = require('./humanized/verificationPolling');
 const { app, BrowserWindow } = require('electron');
+const { operationCoordinator, OperationLeaseConflictError } = require('./operationCoordinator');
 
 const steamApiClient = createSteamApiClient();
 
@@ -35,6 +36,7 @@ let cachedPlayerName = null;
 let cachedSteamId    = null;
 let steamIsAvailable = false;
 let isSteamProcessRunning = false;
+let relockSequence = 0;
 
 // Poll the Windows Steam process only where that command exists. Other
 // platforms rely on the authoritative Steamworks connection state instead.
@@ -395,6 +397,17 @@ function confirmVerifiedAchievement(appId, achievementId) {
   return true;
 }
 
+function publishAchievementRelocked(appId, achievementId) {
+  const cacheKey = `unlocked_cache_${appId}`;
+  const cache = settingsStore.get(cacheKey) || [];
+  const nextCache = cache.filter((id) => id !== achievementId);
+  if (nextCache.length !== cache.length) settingsStore.set(cacheKey, nextCache);
+
+  BrowserWindow.getAllWindows().forEach((win) => {
+    if (!win.isDestroyed()) win.webContents.send('steam:achievement-relocked', achievementId);
+  });
+}
+
 async function unlockAchievement(achievementId, expectedAppId = null) {
   // Instant mode leaves expectedAppId unset. Humanized mode supplies its immutable
   // schedule App ID and must never be redirected by mutable selected-game state.
@@ -606,6 +619,198 @@ async function unlockAchievement(achievementId, expectedAppId = null) {
 }
 
 /**
+ * Relocks one currently-unlocked achievement through Steamworks ClearAchievement
+ * followed by StoreStats. This is deliberately isolated from the existing
+ * activation path: no global ResetAllStats call, no Humanized retargeting, and
+ * no optimistic renderer/cache mutation before a defensible state is reached.
+ */
+async function relockAchievement(achievementId, expectedAppId = null) {
+  const selectedGame = settingsStore.get('selectedGame');
+  if (!selectedGame?.appId) {
+    return { success: false, achievementId, error: 'No game selected.', errorCode: 'NO_SELECTED_GAME' };
+  }
+  const targetAppId = selectedGame.appId;
+  if (expectedAppId !== null && expectedAppId !== undefined && String(targetAppId) !== String(expectedAppId)) {
+    return {
+      success: false,
+      achievementId,
+      appId: targetAppId,
+      error: `Selected App ID ${targetAppId} does not match expected App ID ${expectedAppId}.`,
+      errorCode: 'APP_ID_MISMATCH',
+    };
+  }
+
+  const ownerId = `relock-${Date.now()}-${++relockSequence}`;
+  try {
+    operationCoordinator.claim({ appId: targetAppId, achievementId, mode: 'relock', ownerId });
+  } catch (error) {
+    if (error instanceof OperationLeaseConflictError) {
+      return {
+        success: false,
+        achievementId,
+        appId: targetAppId,
+        error: 'This achievement is already being processed by another operation.',
+        errorCode: error.code,
+      };
+    }
+    throw error;
+  }
+
+  const finalizeFailure = (result) => {
+    operationCoordinator.release(targetAppId, achievementId, ownerId);
+    return result;
+  };
+  let localClient = null;
+  let localAccepted = false;
+  let errorCode = null;
+  let errorMessage = null;
+  try {
+    shutdown();
+    prepareSteamRuntimeContext(Number(targetAppId));
+    runtimeDiagnostics.trace('relock', 'init-start', { appId: targetAppId, achievementId });
+    const steamworks = require('steamworks.js');
+    localClient = steamworks.init(targetAppId);
+    runtimeDiagnostics.trace('relock', 'init-returned', { appId: targetAppId, achievementId });
+
+    // The installed client requests stats during init but returns before the
+    // callback pump has populated the cache. Match the established unlock gate
+    // before reading state, clearing an achievement, or storing changed stats.
+    const timeoutMs = 5000;
+    const pollMs = 40;
+    const startedAt = Date.now();
+    let cacheReady = false;
+    while (!cacheReady && Date.now() - startedAt < timeoutMs) {
+      try {
+        localClient.achievement.isActivated(achievementId);
+        cacheReady = true;
+      } catch (_error) {
+        await new Promise((resolve) => setTimeout(resolve, pollMs));
+      }
+    }
+    runtimeDiagnostics.trace('relock', 'readiness-stage-a', { appId: targetAppId, achievementId, cacheReady, elapsedMs: Date.now() - startedAt });
+    if (!cacheReady) {
+      errorCode = 'STATS_NOT_READY';
+      errorMessage = 'Steam achievement stats were not ready for a relock operation.';
+      return finalizeFailure({ success: false, achievementId, appId: targetAppId, error: errorMessage, errorCode });
+    }
+
+    const wasUnlocked = localClient.achievement.isActivated(achievementId) === true;
+    runtimeDiagnostics.trace('relock', 'local-state', { appId: targetAppId, achievementId, wasUnlocked });
+    if (!wasUnlocked) {
+      return finalizeFailure({
+        success: false,
+        achievementId,
+        appId: targetAppId,
+        error: 'Steam currently reports this achievement as locked; it was not changed.',
+        errorCode: 'ACHIEVEMENT_ALREADY_LOCKED',
+      });
+    }
+
+    // ClearAchievement mutates only Steam's in-memory state. StoreStats is the
+    // required explicit persistence call documented by Valve. This is one local
+    // operation with no retry and no global reset fallback.
+    const clearAccepted = localClient.achievement.clear(achievementId) === true;
+    runtimeDiagnostics.trace('relock', 'clear-result', { appId: targetAppId, achievementId, clearAccepted });
+    if (!clearAccepted) {
+      return finalizeFailure({
+        success: false,
+        achievementId,
+        appId: targetAppId,
+        error: 'Steam rejected the achievement clear request.',
+        errorCode: 'RELOCK_REJECTED',
+      });
+    }
+    const storeAccepted = localClient.stats.store() === true;
+    runtimeDiagnostics.trace('relock', 'store-result', { appId: targetAppId, achievementId, storeAccepted });
+    if (!storeAccepted) {
+      return finalizeFailure({
+        success: false,
+        achievementId,
+        appId: targetAppId,
+        error: 'Steam did not accept the relock stats update.',
+        errorCode: 'RELOCK_STORE_REJECTED',
+      });
+    }
+    localAccepted = true;
+  } catch (error) {
+    errorCode = 'RELOCK_EXECUTION_FAILED';
+    errorMessage = error instanceof Error ? error.message : String(error);
+    runtimeDiagnostics.trace('relock', 'execution-failure', { appId: targetAppId, achievementId, errorCode, reason: errorMessage });
+  } finally {
+    try {
+      localClient?.shutdown?.();
+    } catch (_error) {
+      // Cleanup never changes the operation outcome.
+    } finally {
+      localClient = null;
+      client = null;
+      initialized = false;
+    }
+  }
+
+  if (!localAccepted) {
+    return finalizeFailure({
+      success: false,
+      achievementId,
+      appId: targetAppId,
+      error: errorMessage || 'Steam could not relock this achievement.',
+      errorCode: errorCode || 'RELOCK_EXECUTION_FAILED',
+    });
+  }
+
+  try {
+    let verification;
+    try {
+      verification = await getAchievementVerification(targetAppId, achievementId);
+    } catch (error) {
+      verification = {
+        success: false,
+        appId: targetAppId,
+        achievementId,
+        error: error instanceof Error ? error.message : String(error),
+        errorCode: 'RELOCK_VERIFICATION_UNAVAILABLE',
+      };
+    }
+    if (verification.success && verification.unlocked === false) {
+      publishAchievementRelocked(targetAppId, achievementId);
+      runtimeDiagnostics.trace('relock', 'verified-locked', { appId: targetAppId, achievementId, endpoint: verification.endpoint });
+      return {
+        success: true,
+        state: 'relocked',
+        achievementId,
+        appId: targetAppId,
+        localAccepted: true,
+        verification,
+      };
+    }
+    // A local StoreStats acceptance is meaningful, while a stale/unavailable
+    // remote response is not proof of failure. Keep the UI in an explicit pending
+    // state and never change the displayed lock state optimistically.
+    const pendingReason = verification.success
+      ? 'Steam still reports the previous unlocked state; relock verification is pending.'
+      : 'Steam accepted the relock locally, but remote verification is currently unavailable.';
+    runtimeDiagnostics.trace('relock', 'verification-pending', {
+      appId: targetAppId,
+      achievementId,
+      verificationSuccess: verification.success,
+      verificationUnlocked: verification.unlocked ?? null,
+      errorCode: verification.errorCode || null,
+    });
+    return {
+      success: true,
+      state: 'verification-pending',
+      achievementId,
+      appId: targetAppId,
+      localAccepted: true,
+      message: pendingReason,
+      verification,
+    };
+  } finally {
+    operationCoordinator.release(targetAppId, achievementId, ownerId);
+  }
+}
+
+/**
  * Reads the remote achievement state used by Humanized verification. This helper
  * intentionally bypasses the optimistic local cache so execution success is not
  * treated as proof until the Steam Web API reports the unlocked state.
@@ -757,4 +962,6 @@ module.exports = {
   confirmVerifiedAchievement,
   getGlobalAchievementPercentages,
   unlockAchievement,
+  relockAchievement,
+  publishAchievementRelocked,
 };

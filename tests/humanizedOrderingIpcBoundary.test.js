@@ -129,6 +129,6 @@ test('page-level ordering state keys the canonical projection by humanized mode 
   assert.match(page, /humanizedOrderCache\.byMode\[humanizedOrderMode\]/);
   assert.match(page, /\[achievements, canonicalOrderedIds, unlockMode\]/);
   assert.match(page, /canonicalAchievements=\{canonicalOrderedAchievements\}/);
-  assert.match(page, /Could not calculate the selected Humanized order/);
+  assert.match(page, /t\('achievements\.gridFallback'\)/);
   assert.match(panel, /canonicalAchievements\.filter/);
 });

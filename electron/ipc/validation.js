@@ -167,6 +167,18 @@ function sanitizeUnlockPayload(value) {
   };
 }
 
+function sanitizeRelockPayload(value) {
+  const source = assertPlainObject(value, 'Relock request');
+  // Confirmation is an explicit UI concern. The main process accepts only the
+  // selected game context and one achievement ID; it never accepts a global or
+  // bulk reset instruction through this channel.
+  assertNoUnexpectedFields(source, new Set(['appId', 'achievementId']), 'Relock request');
+  return {
+    appId: assertAppId(source.appId),
+    achievementId: assertString(source.achievementId, 'Achievement ID', { maxLength: MAX_ACHIEVEMENT_ID_LENGTH, pattern: ACHIEVEMENT_ID_PATTERN }),
+  };
+}
+
 function sanitizeOwnedGamesOptions(value) {
   if (value === undefined) return { forceRefresh: false };
   const source = assertPlainObject(value, 'Library options');
@@ -200,4 +212,5 @@ module.exports = {
   sanitizeSwitchGamePayload,
   sanitizeTimerPayload,
   sanitizeUnlockPayload,
+  sanitizeRelockPayload,
 };
