@@ -532,7 +532,7 @@ export default function Achievements({ selectedGame, onChangeGame }) {
 
             {instantError && (
               <div className="timer-execution-message danger" role="alert">
-                <strong>Instant queue did not start.</strong>
+                <strong>{t('achievements.instantQueueFailed')}</strong>
                 <span>{instantError}</span>
               </div>
             )}
@@ -541,7 +541,7 @@ export default function Achievements({ selectedGame, onChangeGame }) {
               <div className={`timer-execution-message ${instantOutcomeTone}`} role={instantOutcomeTone === 'danger' ? 'alert' : 'status'}>
                 <strong>{instantOutcome.state === 'verified' ? t('achievements.confirmationComplete') : instantOutcome.state === 'verification-pending' ? t('achievements.confirmationPending') : instantOutcome.state === 'verification-needs-attention' ? t('achievements.confirmationAttention') : t('common.failed')}</strong>
                 <span>{instantOutcome.message}</span>
-                {instantOutcome.errorCode && <small>Code: {instantOutcome.errorCode}</small>}
+                {instantOutcome.errorCode && <small className="technical-value">{t('achievements.code', { code: instantOutcome.errorCode })}</small>}
                 {timerStatus.pendingVerification && !timerStatus.isActive && (
                   <button type="button" className="btn-secondary timer-recheck-action" onClick={handleRecheckVerification}>
                     {t('achievements.recheck')}
@@ -567,7 +567,7 @@ export default function Achievements({ selectedGame, onChangeGame }) {
                   />
                 </div>
                 <div style={{ fontSize: 11, color: 'var(--text-muted)', marginTop: 6, textAlign: 'right' }}>
-                  {timerStatus.unlockedCount} / {timerStatus.totalInQueue} Completed
+                  {timerStatus.unlockedCount} / {timerStatus.totalInQueue} {t('common.completed')}
                 </div>
               </div>
             )}
@@ -601,7 +601,7 @@ export default function Achievements({ selectedGame, onChangeGame }) {
                   : <>{t('achievements.gridOrder', { mode: t(HUMANIZED_ORDER_LABELS[humanizedOrderMode] || 'mode.original') })}</>}</span>
             </div>
           )}
-          <div className="toolbar" role="toolbar" aria-label="Achievement filters">
+          <div className="toolbar" role="toolbar" aria-label={t('achievements.filtersAria')}>
             <div className="search-wrap">
               <Search size={14} className="search-icon" aria-hidden="true" />
               <input
@@ -629,7 +629,7 @@ export default function Achievements({ selectedGame, onChangeGame }) {
                 className="btn-secondary" 
                 style={{ marginLeft: 8, padding: '5px 12px', fontSize: 12 }}
                 onClick={handleSelectAllLocked}
-                title="Select only the currently visible locked achievements in grid order"
+                title={t('achievements.visibleLockedTooltip')}
               >
                 {allVisibleLockedSelected ? t('achievements.deselectVisibleLocked') : t('achievements.selectAllLocked')}
               </button>

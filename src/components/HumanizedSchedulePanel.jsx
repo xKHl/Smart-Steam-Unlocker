@@ -15,36 +15,35 @@ import {
 import { itemStatusPresentation, verificationPresentation } from '../lib/humanizedVerificationPresentation.mjs';
 import { shouldRefreshHumanizedCountdown } from '../lib/humanizedCountdownRefresh.mjs';
 import { projectExecutionAchievements } from '../lib/executionAchievementPayload.mjs';
+import { useI18n } from '../i18n';
 import {
   DEFAULT_TIMING_PRESET,
   HUMANIZED_TIMING_PRESETS,
-  durationLabel,
-  remainingLabel,
   timingOptionsFromMinutes,
   timingPresetById,
 } from '../lib/humanizedTimingPresets.mjs';
 
 const ORDER_OPTIONS = [
-  { value: 'original', label: 'Original', description: 'Steam’s original achievement order' },
-  { value: 'natural-story-progression', label: 'Natural / Story Progression', description: 'Follow a plausible playthrough from early progression to the end.' },
-  { value: 'most-common-to-rarest', label: 'Most Common → Rarest', description: 'Progress from common to rare achievements' },
-  { value: 'rarest-to-most-common', label: 'Rarest → Most Common', description: 'Start with the least commonly completed achievements' },
+  { value: 'original', labelKey: 'mode.original', descriptionKey: 'scheduler.orderOriginalDescription' },
+  { value: 'natural-story-progression', labelKey: 'mode.naturalStory', descriptionKey: 'scheduler.orderNaturalDescription' },
+  { value: 'most-common-to-rarest', labelKey: 'mode.commonToRare', descriptionKey: 'scheduler.orderCommonDescription' },
+  { value: 'rarest-to-most-common', labelKey: 'mode.rareToCommon', descriptionKey: 'scheduler.orderRareDescription' },
 ];
 
 const ITEM_STATUS = {
-  scheduled: { label: 'Scheduled', tone: 'neutral' },
-  executing: { label: 'Unlocking', tone: 'active' },
-  'verification-required': { label: 'Verifying', tone: 'warning' },
-  retry: { label: 'Retry scheduled', tone: 'warning' },
-  completed: { label: 'Completed', tone: 'success' },
-  failed: { label: 'Failed', tone: 'danger' },
+  scheduled: { labelKey: 'common.scheduled', tone: 'neutral' },
+  executing: { labelKey: 'achievements.unlocking', tone: 'active' },
+  'verification-required': { labelKey: 'scheduler.backgroundVerification', tone: 'warning' },
+  retry: { labelKey: 'scheduler.retryScheduled', tone: 'warning' },
+  completed: { labelKey: 'common.completed', tone: 'success' },
+  failed: { labelKey: 'common.failed', tone: 'danger' },
 };
 
 const SCHEDULE_STATE = {
-  running: { label: 'In progress', tone: 'active' },
-  paused: { label: 'Paused', tone: 'warning' },
-  completed: { label: 'Completed', tone: 'success' },
-  failed: { label: 'Needs attention', tone: 'danger' },
+  running: { labelKey: 'scheduler.inProgress', tone: 'active' },
+  paused: { labelKey: 'common.pause', tone: 'warning' },
+  completed: { labelKey: 'common.completed', tone: 'success' },
+  failed: { labelKey: 'scheduler.scheduleNeedsAttention', tone: 'danger' },
 };
 
 function formatDate(timestamp) {
@@ -59,15 +58,36 @@ function formatRarity(value) {
   return Number.isFinite(numeric) ? `${Math.round(numeric)}% common` : 'Rarity unavailable';
 }
 
+function localizedDuration(milliseconds, t) {
+  const totalSeconds = Math.max(0, Math.round(Number(milliseconds) / 1000));
+  const hours = Math.floor(totalSeconds / 3600);
+  const minutes = Math.floor((totalSeconds % 3600) / 60);
+  const seconds = totalSeconds % 60;
+  return hours > 0
+    ? t('scheduler.durationHoursMinutes', { hours, minutes: String(minutes).padStart(2, '0') })
+    : t('scheduler.durationMinutesSeconds', { minutes, seconds: String(seconds).padStart(2, '0') });
+}
+
+function localizedRemaining(timestamp, now, t) {
+  if (!Number.isFinite(timestamp)) return t('scheduler.timePending');
+  return timestamp <= now ? t('scheduler.dueNow') : t('scheduler.inDuration', { time: localizedDuration(timestamp - now, t) });
+}
+
+function timingPresetCopy(preset, t) {
+  const key = preset.id[0].toUpperCase() + preset.id.slice(1);
+  return { label: t(`scheduler.preset${key}`), description: t(`scheduler.preset${key}Description`) };
+}
+
 function itemStatusMeta(status) {
-  return itemStatusPresentation(status) || ITEM_STATUS[status] || { label: 'Waiting', tone: 'neutral' };
+  return ITEM_STATUS[status] || itemStatusPresentation(status) || { labelKey: 'scheduler.waiting', tone: 'neutral' };
 }
 
 function scheduleStateMeta(state) {
-  return SCHEDULE_STATE[state] || { label: 'Preparing', tone: 'neutral' };
+  return SCHEDULE_STATE[state] || { labelKey: 'scheduler.preparing', tone: 'neutral' };
 }
 
 export default function HumanizedSchedulePanel({ selectedGame, achievements, canonicalAchievements = achievements, selectedIds, orderMode, onOrderModeChange, onScheduleCreated }) {
+  const { locale, t } = useI18n();
   const [status, setStatus] = useState({ schedule: null, summary: null });
   const [seed, setSeed] = useState('humanized-schedule');
   const [timingPreset, setTimingPreset] = useState(DEFAULT_TIMING_PRESET);
@@ -84,7 +104,7 @@ export default function HumanizedSchedulePanel({ selectedGame, achievements, can
     };
 
     window.steamAPI?.humanized?.getStatus().then(applyStatus).catch(() => {
-      if (active) setError('Humanized Mode is unavailable. Restart the application and try again.');
+      if (active) setError(t('scheduler.unavailable'));
     });
     const unsubscribe = window.steamAPI?.humanized?.onUpdate(applyStatus);
 
@@ -118,12 +138,12 @@ export default function HumanizedSchedulePanel({ selectedGame, achievements, can
   const visibleItems = showAllItems ? (schedule?.items || []) : (schedule?.items || []).slice(0, 6);
   const currentOrder = ORDER_OPTIONS.find((option) => option.value === orderMode) || ORDER_OPTIONS[0];
   const verificationDetail = verificationView?.detail || (verificationItem
-    ? `Checking again shortly${verificationReason ? ` (${verificationReason.replaceAll('_', ' ').toLowerCase()})` : ''}.`
+    ? `${t('scheduler.checkingShortly')}${verificationReason ? ` (${verificationReason.replaceAll('_', ' ').toLowerCase()})` : ''}`
     : null);
   const scheduleTiming = schedule?.timing;
   const currentActivity = executingItem
-    ? 'Activating'
-    : verificationView?.title || (nextItem ? 'Waiting for scheduled time' : 'Waiting to begin');
+    ? t('scheduler.activating')
+    : verificationView?.title || (nextItem ? t('scheduler.waiting') : t('scheduler.preparing'));
   const nextUnlockAt = nextItem?.nextAttemptAt || nextItem?.scheduledAt;
   const refreshCountdown = shouldRefreshHumanizedCountdown({
     scheduleState: schedule?.state,
@@ -148,7 +168,7 @@ export default function HumanizedSchedulePanel({ selectedGame, achievements, can
       if (nextStatus) setStatus(nextStatus);
       return nextStatus;
     } catch (exception) {
-      setError(exception instanceof Error ? exception.message : 'Humanized Mode could not complete that action.');
+      setError(exception instanceof Error ? exception.message : t('scheduler.actionFailed'));
       return null;
     } finally {
       setIsWorking(false);
@@ -190,15 +210,15 @@ export default function HumanizedSchedulePanel({ selectedGame, achievements, can
         <div className="humanized-title-wrap">
           <div className="humanized-icon" aria-hidden="true"><Sparkles size={18} /></div>
           <div>
-            <p className="humanized-eyebrow">Achievement progression</p>
-            <h2 id="humanized-title">Humanized Mode</h2>
-            <p>Choose a progression order, create a schedule, and let it move forward at a thoughtful pace.</p>
+            <p className="humanized-eyebrow">{t('achievements.progressionMode')}</p>
+            <h2 id="humanized-title">{t('scheduler.title')}</h2>
+            <p>{t('scheduler.intro')}</p>
           </div>
         </div>
         {schedule && scheduleMatchesGame && (
           <span className={`humanized-status humanized-status-${scheduleMeta.tone}`}>
             <span className="humanized-status-dot" aria-hidden="true" />
-            {scheduleMeta.label}
+            {t(scheduleMeta.labelKey || scheduleMeta.label)}
           </span>
         )}
       </header>
@@ -207,13 +227,13 @@ export default function HumanizedSchedulePanel({ selectedGame, achievements, can
         <div className="humanized-setup">
           <div className="humanized-setup-copy">
             <div>
-              <h3>Choose how to progress</h3>
-              <p>The achievement grid updates immediately to reflect your choice.</p>
+              <h3>{t('scheduler.chooseProgress')}</h3>
+              <p>{t('scheduler.gridUpdates')}</p>
             </div>
-            <span className="humanized-selection-count">{selectedAchievements.length} selected</span>
+            <span className="humanized-selection-count">{t('scheduler.selected', { count: selectedAchievements.length })}</span>
           </div>
 
-          <div className="humanized-order-grid" role="radiogroup" aria-label="Achievement order">
+          <div className="humanized-order-grid" role="radiogroup" aria-label={t('scheduler.chooseProgress')}>
             {ORDER_OPTIONS.map((option) => (
               <button
                 key={option.value}
@@ -225,8 +245,8 @@ export default function HumanizedSchedulePanel({ selectedGame, achievements, can
               >
                 <span className="humanized-order-radio" aria-hidden="true" />
                 <span>
-                  <strong>{option.label}</strong>
-                  <small>{option.description}</small>
+                  <strong>{t(option.labelKey)}</strong>
+                  <small>{t(option.descriptionKey)}</small>
                 </span>
               </button>
             ))}
@@ -235,11 +255,11 @@ export default function HumanizedSchedulePanel({ selectedGame, achievements, can
           <section className="humanized-timing-setup" aria-labelledby="humanized-timing-title">
             <div className="humanized-setup-copy">
               <div>
-                <h3 id="humanized-timing-title">Set the pace</h3>
-                <p>Timing is generated once, saved with the queue, and shown below before you start.</p>
+                <h3 id="humanized-timing-title">{t('scheduler.pace')}</h3>
+                <p>{t('scheduler.timingSaved')}</p>
               </div>
             </div>
-            <div className="humanized-timing-presets" role="radiogroup" aria-label="Humanized timing preset">
+            <div className="humanized-timing-presets" role="radiogroup" aria-label={t('scheduler.timingPreset')}>
               {HUMANIZED_TIMING_PRESETS.map((preset) => (
                 <button
                   key={preset.id}
@@ -249,9 +269,9 @@ export default function HumanizedSchedulePanel({ selectedGame, achievements, can
                   aria-pressed={timingPreset === preset.id}
                   disabled={isWorking}
                 >
-                  <strong>{preset.label}</strong>
-                  <small>{preset.description}</small>
-                  <span>{preset.initialDelayMinutes}m start · {preset.baseIntervalMinutes}m ± {preset.varianceMinutes}m</span>
+                  <strong>{timingPresetCopy(preset, t).label}</strong>
+                  <small>{timingPresetCopy(preset, t).description}</small>
+                  <span>{t('scheduler.initialDelaySummary', { time: localizedDuration(preset.initialDelayMinutes * 60_000, t) })} · {localizedDuration(preset.baseIntervalMinutes * 60_000, t)} ± {localizedDuration(preset.varianceMinutes * 60_000, t)}</span>
                 </button>
               ))}
             </div>
@@ -261,37 +281,37 @@ export default function HumanizedSchedulePanel({ selectedGame, achievements, can
             <div className="humanized-create-summary">
               <span className="humanized-summary-icon"><CalendarClock size={16} /></span>
               <span>
-                <strong>{currentOrder.label}</strong>
-                <small>{selectedAchievements.length ? `${selectedAchievements.length} selected achievement${selectedAchievements.length === 1 ? '' : 's'} will be included.` : 'Select locked achievements from the grid to begin.'}</small>
+                <strong>{t(currentOrder.labelKey)}</strong>
+                <small>{selectedAchievements.length ? t('scheduler.selectedSummary', { count: selectedAchievements.length }) : t('scheduler.selectLocked')}</small>
               </span>
             </div>
             <button className="btn-success humanized-primary-action" onClick={handleCreate} disabled={isWorking || selectedAchievements.length === 0}>
-              <CalendarClock size={15} /> Create schedule
+              <CalendarClock size={15} /> {t('scheduler.create')}
             </button>
           </div>
 
           <details className="humanized-advanced">
-            <summary>Advanced schedule options <ChevronDown size={14} /></summary>
+            <summary>{t('scheduler.advanced')} <ChevronDown size={14} className="directional-chevron" /></summary>
             <div className="humanized-timing-input-grid">
-              <label htmlFor="humanized-initial-delay">Initial delay (minutes)
+              <label htmlFor="humanized-initial-delay">{t('scheduler.initialDelay')}
                 <input id="humanized-initial-delay" type="number" min="0" max="720" step="1" value={timing.initialDelayMinutes} onChange={(event) => updateTiming('initialDelayMinutes', event.target.value)} disabled={isWorking} />
               </label>
-              <label htmlFor="humanized-base-interval">Base interval (minutes)
+              <label htmlFor="humanized-base-interval">{t('scheduler.baseInterval')}
                 <input id="humanized-base-interval" type="number" min="1" max="720" step="1" value={timing.baseIntervalMinutes} onChange={(event) => updateTiming('baseIntervalMinutes', event.target.value)} disabled={isWorking} />
               </label>
-              <label htmlFor="humanized-variance">Random variance (minutes)
+              <label htmlFor="humanized-variance">{t('scheduler.randomVariance')}
                 <input id="humanized-variance" type="number" min="0" max="720" step="1" value={timing.varianceMinutes} onChange={(event) => updateTiming('varianceMinutes', event.target.value)} disabled={isWorking} />
               </label>
-              <label htmlFor="humanized-min-interval">Safe minimum (minutes)
+              <label htmlFor="humanized-min-interval">{t('scheduler.safeMinimum')}
                 <input id="humanized-min-interval" type="number" min="1" max="720" step="1" value={timing.minIntervalMinutes} onChange={(event) => updateTiming('minIntervalMinutes', event.target.value)} disabled={isWorking} />
               </label>
-              <label htmlFor="humanized-max-interval">Safe maximum (minutes)
+              <label htmlFor="humanized-max-interval">{t('scheduler.safeMaximum')}
                 <input id="humanized-max-interval" type="number" min="1" max="720" step="1" value={timing.maxIntervalMinutes} onChange={(event) => updateTiming('maxIntervalMinutes', event.target.value)} disabled={isWorking} />
               </label>
             </div>
-            <label htmlFor="humanized-seed">Schedule reference</label>
+            <label htmlFor="humanized-seed">{t('scheduler.scheduleReference')}</label>
             <input id="humanized-seed" className="search-input humanized-seed-input" value={seed} onChange={(event) => setSeed(event.target.value)} disabled={isWorking} />
-            <p>Use the same reference to recreate the same timing pattern for a new schedule. Timing is a product preference, not a guarantee of human behavior.</p>
+            <p>{t('scheduler.referenceHelp')}</p>
           </details>
         </div>
       ) : (
@@ -299,39 +319,39 @@ export default function HumanizedSchedulePanel({ selectedGame, achievements, can
           <div className="humanized-progress-card">
             <div className="humanized-progress-head">
               <div>
-                <p className="humanized-eyebrow">Schedule progress</p>
+                <p className="humanized-eyebrow">{t('scheduler.progress')}</p>
                 <h3>{summary?.completed ?? 0} <span>/ {summary?.total ?? 0}</span></h3>
               </div>
-              <span className="humanized-progress-percent">{completedPercent}% complete</span>
+              <span className="humanized-progress-percent">{t('scheduler.completePercent', { percent: completedPercent })}</span>
             </div>
-            <div className="humanized-progress-track" aria-label={`${completedPercent}% complete`}>
+            <div className="humanized-progress-track" aria-label={t('scheduler.completePercent', { percent: completedPercent })}>
               <div className="humanized-progress-fill" style={{ width: `${completedPercent}%` }} />
             </div>
             <div className="humanized-progress-context">
               <div>
-                <span>Current</span>
+                <span>{t('scheduler.current')}</span>
                 <strong>{activeItem?.name || activeItem?.id || currentActivity}</strong>
               </div>
               <div>
-                <span>Next</span>
-                <strong>{nextItem?.name || nextItem?.id || 'No upcoming achievement'}</strong>
+                <span>{t('scheduler.next')}</span>
+                <strong>{nextItem?.name || nextItem?.id || t('scheduler.noUpcoming')}</strong>
               </div>
             </div>
             <div className="humanized-live-progress" aria-live="polite">
               <span>{currentActivity}</span>
-              <strong>{nextItem ? `Next unlock ${remainingLabel(nextUnlockAt, clockNow)}` : (verificationItem ? verificationDetail : 'No upcoming achievement')}</strong>
+              <strong>{nextItem ? t('scheduler.nextUnlock', { time: localizedRemaining(nextUnlockAt, clockNow, t) }) : (verificationItem ? verificationDetail : t('scheduler.noUpcoming'))}</strong>
             </div>
             {scheduleTiming && (
               <p className="humanized-timing-summary">
-                {scheduleTiming.preset ? `${scheduleTiming.preset[0].toUpperCase()}${scheduleTiming.preset.slice(1)} pace` : 'Custom pace'} · {durationLabel(scheduleTiming.initialDelayMs)} initial delay · {durationLabel(scheduleTiming.baseIntervalMs)} ± {durationLabel(scheduleTiming.varianceMs)}
+                {scheduleTiming.preset ? `${timingPresetCopy({ id: scheduleTiming.preset }, t).label} ${t('scheduler.pace')}` : t('scheduler.customPace')} · {t('scheduler.initialDelaySummary', { time: localizedDuration(scheduleTiming.initialDelayMs, t) })} · {localizedDuration(scheduleTiming.baseIntervalMs, t)} ± {localizedDuration(scheduleTiming.varianceMs, t)}
               </p>
             )}
           </div>
 
           <div className="humanized-schedule-toolbar">
             <div>
-              <h3>Your schedule</h3>
-              <p>{schedule.orderMode === 'original' ? 'Original Steam order' : ORDER_OPTIONS.find((option) => option.value === schedule.orderMode)?.label || 'Custom order'} · {verificationDetail || (summary?.verificationRequired ? `${summary.verificationRequired} awaiting verification` : 'Ready to continue')}</p>
+              <h3>{t('scheduler.yourSchedule')}</h3>
+              <p>{schedule.orderMode === 'original' ? t('mode.original') : t(ORDER_OPTIONS.find((option) => option.value === schedule.orderMode)?.labelKey || 'mode.original')} · {verificationDetail || (summary?.verificationRequired ? t('scheduler.awaitingVerification', { count: summary.verificationRequired }) : t('scheduler.readyToContinue'))}</p>
             </div>
             <div className="humanized-actions">
               {verificationView?.showRecheck && (
@@ -339,18 +359,18 @@ export default function HumanizedSchedulePanel({ selectedGame, achievements, can
                   className="btn-secondary humanized-recheck-action"
                   onClick={() => invoke(() => window.steamAPI.humanized.recheckNow())}
                   disabled={isWorking || verificationView?.recheckDisabled}
-                  title={verificationView?.recheckDisabled ? 'Steam confirmation is already being checked automatically.' : 'Run one safe verification check without activating again.'}
+                  title={verificationView?.recheckDisabled ? t('scheduler.recheckAuto') : t('scheduler.recheckSafe')}
                 >
                   <RefreshCw size={14} className={isWorking ? 'is-spinning' : ''} />
-                  {isWorking ? 'Checking...' : 'Recheck now'}
+                  {isWorking ? t('scheduler.recheckBusy') : t('scheduler.recheckNow')}
                 </button>
               )}
               {schedule.state === 'running' ? (
-                <button className="btn-secondary" onClick={() => invoke(() => window.steamAPI.humanized.pause())} disabled={isWorking}><Pause size={14} /> Pause</button>
+                <button className="btn-secondary" onClick={() => invoke(() => window.steamAPI.humanized.pause())} disabled={isWorking}><Pause size={14} /> {t('common.pause')}</button>
               ) : schedule.state !== 'completed' && schedule.state !== 'failed' ? (
-                <button className="btn-success" onClick={() => invoke(() => window.steamAPI.humanized.start())} disabled={isWorking}><Play size={14} fill="currentColor" /> {schedule.state === 'paused' ? 'Resume' : 'Start'}</button>
+                <button className="btn-success" onClick={() => invoke(() => window.steamAPI.humanized.start())} disabled={isWorking}><Play size={14} fill="currentColor" /> {schedule.state === 'paused' ? t('common.resume') : t('common.start')}</button>
               ) : null}
-              <button className="btn-danger humanized-clear-action" onClick={() => invoke(() => window.steamAPI.humanized.clear())} disabled={isWorking}><Trash2 size={14} /> Clear</button>
+              <button className="btn-danger humanized-clear-action" onClick={() => invoke(() => window.steamAPI.humanized.clear())} disabled={isWorking}><Trash2 size={14} /> {t('common.clear')}</button>
             </div>
           </div>
 
@@ -361,7 +381,7 @@ export default function HumanizedSchedulePanel({ selectedGame, achievements, can
             </div>
           )}
 
-          <div className="humanized-timeline" aria-label="Humanized schedule queue">
+          <div className="humanized-timeline" aria-label={t('scheduler.queue')}>
             {visibleItems.map((item) => {
               const itemMeta = itemStatusMeta(item.status);
               return (
@@ -371,13 +391,13 @@ export default function HumanizedSchedulePanel({ selectedGame, achievements, can
                     <div className="humanized-timeline-title-row">
                       <h4>{item.name || item.id}</h4>
                       <time dateTime={Number.isFinite(item.verificationMeta?.nextVerificationAt || item.nextAttemptAt || item.scheduledAt) ? new Date(item.verificationMeta?.nextVerificationAt || item.nextAttemptAt || item.scheduledAt).toISOString() : undefined}>
-                        <Clock3 size={13} /> {item.status === 'verification-required' ? (item.verificationMeta?.exhausted ? 'Pending confirmation' : `Confirming in background ${remainingLabel(item.verificationMeta?.nextVerificationAt, clockNow)}`) : `Scheduled ${remainingLabel(item.nextAttemptAt || item.scheduledAt, clockNow)}`}
+                        <Clock3 size={13} /> {item.status === 'verification-required' ? (item.verificationMeta?.exhausted ? t('scheduler.pendingConfirmation') : t('scheduler.confirmingBackground', { time: localizedRemaining(item.verificationMeta?.nextVerificationAt, clockNow, t) })) : t('scheduler.scheduledAt', { time: localizedRemaining(item.nextAttemptAt || item.scheduledAt, clockNow, t) })}
                       </time>
                     </div>
                     <div className="humanized-timeline-meta">
-                      <span>{formatRarity(item.globalPercent)}</span>
-                      <span className={`humanized-item-status is-${itemMeta.tone}`}>{itemMeta.label}</span>
-                      {item.attempts > 0 && <span>{item.attempts} attempt{item.attempts === 1 ? '' : 's'}</span>}
+                      <span>{Number.isFinite(Number(item.globalPercent)) ? t('scheduler.rarity', { value: Math.round(Number(item.globalPercent)) }) : t('scheduler.rarityUnavailable')}</span>
+                      <span className={`humanized-item-status is-${itemMeta.tone}`}>{t(itemMeta.labelKey || itemMeta.label)}</span>
+                      {item.attempts > 0 && <span>{t('scheduler.attempts', { count: item.attempts })}</span>}
                     </div>
                                           {item.lastError && item.status !== 'verification-required' && <p className="humanized-item-error">{item.lastError}</p>}
 
@@ -389,7 +409,7 @@ export default function HumanizedSchedulePanel({ selectedGame, achievements, can
 
           {(schedule.items?.length || 0) > 6 && (
             <button className="humanized-show-more" type="button" onClick={() => setShowAllItems((value) => !value)}>
-              {showAllItems ? 'Show less' : `View all ${schedule.items.length} achievements`}
+              {showAllItems ? t('scheduler.showLess') : t('scheduler.viewAll', { count: schedule.items.length })}
             </button>
           )}
         </div>
@@ -398,18 +418,18 @@ export default function HumanizedSchedulePanel({ selectedGame, achievements, can
       {schedule && !scheduleMatchesGame && (
         <div className="humanized-message humanized-message-warning" role="alert">
           <CircleAlert size={17} />
-          <span><strong>A different game has an active schedule.</strong> Discard it before creating one here.</span>
-          <button className="btn-danger" onClick={() => invoke(() => window.steamAPI.humanized.clear())} disabled={isWorking}>Discard schedule</button>
+          <span><strong>{t('scheduler.otherGameActive')}</strong> {t('scheduler.discardHere')}</span>
+          <button className="btn-danger" onClick={() => invoke(() => window.steamAPI.humanized.clear())} disabled={isWorking}>{t('scheduler.discardSchedule')}</button>
         </div>
       )}
       {schedule?.state === 'completed' && (
         <div className="humanized-message humanized-message-success" role="status">
-          <CheckCircle2 size={17} /> <span><strong>Schedule complete.</strong> Every planned achievement has been verified.</span>
+          <CheckCircle2 size={17} /> <span><strong>{t('scheduler.scheduleComplete')}</strong> {t('scheduler.scheduleCompleteDetail')}</span>
         </div>
       )}
       {schedule?.state === 'failed' && (
         <div className="humanized-message humanized-message-danger" role="alert">
-          <AlertTriangle size={17} /> <span><strong>Schedule needs attention.</strong> Review the failed item, then clear and create a new schedule when ready.</span>
+          <AlertTriangle size={17} /> <span><strong>{t('scheduler.scheduleNeedsAttention')}</strong> {t('scheduler.scheduleNeedsAttentionDetail')}</span>
         </div>
       )}
       {(runtimeError || error || itemError) && (

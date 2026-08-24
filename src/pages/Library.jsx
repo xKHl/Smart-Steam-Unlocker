@@ -6,6 +6,7 @@ import {
 } from 'lucide-react';
 import GameCard from '../components/GameCard';
 import { useNavigate } from 'react-router-dom';
+import { useI18n } from '../i18n';
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Helpers
@@ -26,45 +27,20 @@ function formatSize(bytes) {
 }
 
 const SORT_OPTIONS = [
-  { value: 'name-asc',      label: 'Name A → Z' },
-  { value: 'name-desc',     label: 'Name Z → A' },
-  { value: 'playtime-desc', label: 'Most Played' },
-  { value: 'playtime-asc',  label: 'Least Played' },
-  { value: 'recent',        label: 'Recently Played' },
+  { value: 'name-asc',      labelKey: 'library.nameAsc' },
+  { value: 'name-desc',     labelKey: 'library.nameDesc' },
+  { value: 'playtime-desc', labelKey: 'library.mostPlayed' },
+  { value: 'playtime-asc',  labelKey: 'library.leastPlayed' },
+  { value: 'recent',        labelKey: 'library.recentlyPlayed' },
 ];
 
 // Human-readable error explanations
 const ERROR_COPY = {
-  NO_API_KEY: {
-    title: 'Steam API Key Required',
-    body:  'To show your full library, enter a free Steam Web API key in Settings.',
-    cta:   'Open Settings',
-    route: '/settings',
-  },
-  INVALID_API_KEY: {
-    title: 'Invalid API Key',
-    body:  'Steam rejected your API key. Please check it in Settings.',
-    cta:   'Fix in Settings',
-    route: '/settings',
-  },
-  STEAM_NOT_CONNECTED: {
-    title: 'Steam Not Connected',
-    body:  'Make sure Steam is running on this machine, then restart the app.',
-    cta:   null,
-    route: null,
-  },
-  PRIVATE_PROFILE: {
-    title: 'Profile is Private',
-    body:  'Set your Steam "Game details" privacy to Public, then retry.',
-    cta:   null,
-    route: null,
-  },
-  FETCH_ERROR: {
-    title: 'Network Error',
-    body:  'Could not reach the Steam API. Check your internet connection.',
-    cta:   null,
-    route: null,
-  },
+  NO_API_KEY: { titleKey: 'library.apiKeyTitle', bodyKey: 'library.apiKeyBody', ctaKey: 'library.openSettings', route: '/settings' },
+  INVALID_API_KEY: { titleKey: 'library.invalidKeyTitle', bodyKey: 'library.invalidKeyBody', ctaKey: 'library.fixSettings', route: '/settings' },
+  STEAM_NOT_CONNECTED: { titleKey: 'library.steamNotConnected', bodyKey: 'library.steamNotConnectedBody', route: null },
+  PRIVATE_PROFILE: { titleKey: 'library.privateProfile', bodyKey: 'library.privateProfileBody', route: null },
+  FETCH_ERROR: { titleKey: 'library.networkError', bodyKey: 'library.networkErrorBody', route: null },
 };
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -81,6 +57,7 @@ const ERROR_COPY = {
  *   success     → responsive game grid with search + sort
  */
 export default function Library({ selectedGame, onGameSelect, switchError, onDismissSwitchError }) {
+  const { locale, t } = useI18n();
   const navigate = useNavigate();
 
   const [games,     setGames]     = useState([]);
@@ -150,8 +127,8 @@ export default function Library({ selectedGame, onGameSelect, switchError, onDis
   const SkeletonGrid = () => (
     <div className="empty-state" style={{ minHeight: '50vh' }}>
       <Loader2 size={48} color="#a78bfa" className="animate-spin" style={{ marginBottom: 16 }} />
-      <h2 className="empty-title">Fetching your Steam library...</h2>
-      <p className="empty-sub">Connecting to Steam Web API</p>
+      <h2 className="empty-title">{t('library.fetching')}</h2>
+      <p className="empty-sub">{t('library.connectingApi')}</p>
     </div>
   );
 
@@ -165,23 +142,23 @@ export default function Library({ selectedGame, onGameSelect, switchError, onDis
           ? <Settings size={28} color="#a78bfa" />
           : <AlertCircle size={28} color="#fbbf24" />}
       </div>
-      <h2 className="library-error-title">{errorInfo?.title}</h2>
+      <h2 className="library-error-title">{t(errorInfo?.titleKey || 'library.networkError')}</h2>
       <p className="library-error-body">
-        {errorInfo?.body}
+        {t(errorInfo?.bodyKey || 'library.networkErrorBody')}
         {errorMsg && errorCode === 'FETCH_ERROR' && (
           <><br /><code style={{ fontSize: 11, opacity: 0.6 }}>{errorMsg}</code></>
         )}
       </p>
       <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap', justifyContent: 'center' }}>
-        {errorInfo?.cta && errorInfo?.route && (
+        {errorInfo?.ctaKey && errorInfo?.route && (
           <button className="hero-cta" onClick={() => navigate(errorInfo.route)}>
-            {errorInfo.cta}
-            <ChevronRight size={14} />
+            {t(errorInfo.ctaKey)}
+            <ChevronRight size={14} className="directional-chevron" />
           </button>
         )}
         <button className="btn-secondary" onClick={() => fetchLibrary(true)}>
           <RefreshCw size={13} />
-          Retry
+          {t('library.retry')}
         </button>
       </div>
     </div>
@@ -190,10 +167,10 @@ export default function Library({ selectedGame, onGameSelect, switchError, onDis
   // ─────────────────────────────────────────────────────────────────────────
 
   const subtitle = loading
-    ? 'Fetching your library from Steam…'
+    ? t('library.loadingSubtitle')
     : errorCode
-    ? errorInfo?.title ?? 'Error'
-    : `${count.toLocaleString()} owned game${count !== 1 ? 's' : ''}${totalPlaytimeHours ? ` · ${totalPlaytimeHours.toLocaleString()}h total playtime` : ''}`;
+    ? t(errorInfo?.titleKey || 'library.error')
+    : `${t('library.ownedSummary', { count: count.toLocaleString(locale === 'ar' ? 'ar-SA' : 'en-US') })}${totalPlaytimeHours ? ` · ${t('library.totalPlaytime', { hours: totalPlaytimeHours.toLocaleString(locale === 'ar' ? 'ar-SA' : 'en-US') })}` : ''}`;
 
   return (
     <div className="page-container library-page animate-fade-in">
@@ -201,7 +178,7 @@ export default function Library({ selectedGame, onGameSelect, switchError, onDis
       {/* ── Page Header ───────────────────────────────────────────────────── */}
       <div className="page-header">
         <div>
-          <h1 className="page-title">Game Library</h1>
+          <h1 className="page-title">{t('library.gameLibrary')}</h1>
           <p className="page-sub">{subtitle}</p>
         </div>
 
@@ -215,10 +192,10 @@ export default function Library({ selectedGame, onGameSelect, switchError, onDis
                 id="input-library-search"
                 type="search"
                 className="search-input"
-                placeholder="Name or AppID…"
+                placeholder={t('library.search')}
                 value={search}
                 onChange={(e) => setSearch(e.target.value)}
-                aria-label="Search games"
+                aria-label={t('library.searchGames')}
               />
             </div>
 
@@ -230,10 +207,10 @@ export default function Library({ selectedGame, onGameSelect, switchError, onDis
                 className="bg-gray-800 text-white border border-gray-700 rounded py-1 px-2 text-xs ml-2 outline-none focus:border-purple-500"
                 value={sort}
                 onChange={(e) => setSort(e.target.value)}
-                aria-label="Sort games"
+                aria-label={t('library.sortGames')}
               >
                 {SORT_OPTIONS.map(o => (
-                  <option key={o.value} value={o.value}>{o.label}</option>
+                  <option key={o.value} value={o.value}>{t(o.labelKey)}</option>
                 ))}
               </select>
             </div>
@@ -242,8 +219,8 @@ export default function Library({ selectedGame, onGameSelect, switchError, onDis
             <button
               className="btn-secondary"
               onClick={() => fetchLibrary(true)}
-              title="Refresh library from Steam"
-              aria-label="Refresh library"
+              title={t('library.refreshSteam')}
+              aria-label={t('library.refresh')}
             >
               <RefreshCw size={13} />
             </button>
@@ -260,7 +237,7 @@ export default function Library({ selectedGame, onGameSelect, switchError, onDis
             type="button"
             className="library-switch-error-dismiss"
             onClick={onDismissSwitchError}
-            aria-label="Dismiss error"
+            aria-label={t('library.dismissError')}
           >
             <XCircle size={15} />
           </button>
@@ -272,11 +249,11 @@ export default function Library({ selectedGame, onGameSelect, switchError, onDis
         <div className="library-stats-strip">
           <div className="lib-stat">
             <LibraryIcon size={13} color="var(--text-muted)" />
-            <span><strong>{count.toLocaleString()}</strong> games owned</span>
+            <span><strong>{count.toLocaleString(locale === 'ar' ? 'ar-SA' : 'en-US')}</strong> {t('library.gamesOwned')}</span>
           </div>
           <div className="lib-stat">
             <Clock size={13} color="var(--text-muted)" />
-            <span><strong>{totalPlaytimeHours.toLocaleString()}h</strong> total playtime</span>
+            <span><strong>{totalPlaytimeHours.toLocaleString(locale === 'ar' ? 'ar-SA' : 'en-US')}h</strong> {t('library.totalPlaytimeLabel')}</span>
           </div>
           <div className="lib-stat">
             <Trophy size={13} color="var(--text-muted)" />
@@ -284,12 +261,12 @@ export default function Library({ selectedGame, onGameSelect, switchError, onDis
               <strong>
                 {games.filter(g => (g.playtimeMinutes ?? 0) > 0).length.toLocaleString()}
               </strong>{' '}
-              played
+              {t('library.played')}
             </span>
           </div>
           {search && (
             <div className="lib-stat lib-stat-filter">
-              <span>{displayedGames.length} matching</span>
+              <span>{t('library.matching', { count: displayedGames.length.toLocaleString(locale === 'ar' ? 'ar-SA' : 'en-US') })}</span>
             </div>
           )}
         </div>
@@ -304,7 +281,7 @@ export default function Library({ selectedGame, onGameSelect, switchError, onDis
       {/* ── Game Grid ─────────────────────────────────────────────────────── */}
       {!loading && !errorCode && (
         displayedGames.length > 0 ? (
-          <div className="library-grid" role="list" aria-label="Game library">
+          <div className="library-grid" role="list" aria-label={t('library.gameList')}>
             {displayedGames.map((game) => (
               <div key={game.appId} role="listitem">
                 <GameCard
@@ -322,8 +299,8 @@ export default function Library({ selectedGame, onGameSelect, switchError, onDis
               <div className="empty-icon-ring-inner" aria-hidden="true" />
               <Gamepad2 size={42} color="#7c3aed" style={{ opacity: 0.65 }} aria-hidden="true" />
             </div>
-            <h2 className="empty-title">{search ? 'No games match your search' : 'No Games Found'}</h2>
-            <p className="empty-sub">{search ? 'Try a different name or AppID.' : 'Please ensure Steam is running and your library is populated.'}</p>
+            <h2 className="empty-title">{search ? t('library.noSearchResults') : t('library.noGames')}</h2>
+            <p className="empty-sub">{search ? t('library.changeSearch') : t('library.noGamesHint')}</p>
           </div>
         )
       )}

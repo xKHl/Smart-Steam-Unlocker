@@ -97,8 +97,8 @@ describe('Achievement Integrity integration boundaries', () => {
 
     assert.match(page, /getAchievementIntegrityData/);
     assert.doesNotMatch(page, /unlockAchievement|humanized\.(?:create|replace|start)|timer\.(?:startQueue|clearQueue)/);
-    assert.match(page, /Local-first and privacy-first/);
-    assert.match(page, /not unlock, modify, submit, or publish achievements/);
+    assert.match(page, /t\('integrity\.privacyTitle'\)/);
+    assert.match(page, /t\('integrity\.privacyDetail'\)/);
     assert.match(app, /path="\/integrity"/);
     assert.match(sidebar, /nav-integrity/);
     assert.match(preload, /getAchievementIntegrityData/);

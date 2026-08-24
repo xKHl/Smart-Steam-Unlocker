@@ -26,6 +26,6 @@ test('Humanized panel uses a local one-second presentation clock without changin
   assert.match(panel, /shouldRefreshHumanizedCountdown/);
   assert.match(panel, /setInterval\(refresh, 1_000\)/);
   assert.match(panel, /clearInterval\(interval\)/);
-  assert.match(panel, /remainingLabel\(nextUnlockAt, clockNow\)/);
-  assert.match(panel, /remainingLabel\(item\.verificationMeta\?\.nextVerificationAt, clockNow\)/);
+  assert.match(panel, /localizedRemaining\(nextUnlockAt, clockNow, t\)/);
+  assert.match(panel, /localizedRemaining\(item\.verificationMeta\?\.nextVerificationAt, clockNow, t\)/);
 });

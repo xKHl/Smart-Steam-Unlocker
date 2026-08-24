@@ -156,8 +156,8 @@ describe('stats.store() usage in unlockAchievement', () => {
 describe('Dashboard Activity card uses playtime_2weeks', () => {
   test('Activity card label is Recent Activity, not Last Activity', () => {
     const dash = source('src/pages/Dashboard.jsx');
-    assert.match(dash, /label: 'Recent Activity'/,
-      "Activity card label must be 'Recent Activity'");
+    assert.match(dash, /label: t\('dashboard\.recentActivity'\)/,
+      'Activity card label must use the localized Recent Activity term');
     assert.doesNotMatch(dash, /label: 'Last Activity'/,
       "Activity card must not use the old 'Last Activity' label");
   });
@@ -170,8 +170,8 @@ describe('Dashboard Activity card uses playtime_2weeks', () => {
 
   test('Activity card shows truthful no-activity message when playtime2Weeks is zero', () => {
     const dash = source('src/pages/Dashboard.jsx');
-    assert.match(dash, /No recent activity reported by Steam/,
-      "Activity card must show 'No recent activity reported by Steam' when playtime2Weeks is zero");
+    assert.match(dash, /t\('status\.noRecent'\)/,
+      'Activity card must use the localized no-activity state when playtime2Weeks is zero');
   });
 
   test('Activity card shows playtime in hours and minutes when non-zero', () => {
@@ -185,8 +185,8 @@ describe('Dashboard Activity card uses playtime_2weeks', () => {
 
   test('Activity card shows "Played in the last 2 weeks" sub-label when active', () => {
     const dash = source('src/pages/Dashboard.jsx');
-    assert.match(dash, /Played in the last 2 weeks/,
-      "Activity card sub-label must say 'Played in the last 2 weeks' when playtime2Weeks > 0");
+    assert.match(dash, /t\('dashboard\.recentActivityFor'/,
+      'Activity card sub-label must use the localized recent-playtime message when playtime2Weeks > 0');
   });
 
   test('Activity card does not use rtime_last_played', () => {
@@ -204,8 +204,8 @@ describe('Dashboard Activity card uses playtime_2weeks', () => {
 
   test('Activity card shows None reported when no game is selected and phase is ready', () => {
     const dash = source('src/pages/Dashboard.jsx');
-    assert.match(dash, /None reported/,
-      "Activity card must show 'None reported' when playtime2Weeks is zero or missing");
+    assert.match(dash, /t\('dashboard\.noneReported'\)/,
+      'Activity card must use the localized no-playtime value when playtime2Weeks is zero or missing');
   });
 
   test('Activity card is semantically separate from Selected Game card', () => {

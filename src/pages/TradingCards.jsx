@@ -18,12 +18,13 @@ import {
   TRADING_CARD_FILTERS,
   TRADING_CARD_SORTS,
 } from '../lib/tradingCardProjection.mjs';
+import { useI18n } from '../i18n';
 
 const STATUS_COPY = {
-  remaining: { label: 'Drops available', detail: (count) => `${count} ${count === 1 ? 'drop' : 'drops'} remaining`, tone: 'good' },
-  exhausted: { label: 'Drops exhausted', detail: () => 'Steam reports no remaining card drops', tone: 'muted' },
-  unavailable: { label: 'Card status unavailable', detail: () => 'Steam has not provided account drop data', tone: 'muted' },
-  'not-applicable': { label: 'No Trading Cards', detail: () => 'This game does not have Steam Trading Cards.', tone: 'muted' },
+  remaining: { labelKey: 'trading.dropsAvailable', detailKey: 'trading.dropsRemainingDetail', tone: 'good' },
+  exhausted: { labelKey: 'trading.dropsExhausted', detailKey: 'trading.exhaustedDetail', tone: 'muted' },
+  unavailable: { labelKey: 'trading.statusUnavailable', detailKey: 'trading.unavailableDetail', tone: 'muted' },
+  'not-applicable': { labelKey: 'trading.noCards', detailKey: 'trading.noCardsDetail', tone: 'muted' },
 };
 
 function formatDuration(totalMs) {
@@ -42,15 +43,11 @@ function cardState(game) {
   return STATUS_COPY.unavailable;
 }
 
-function monitorCopy(monitor) {
+function monitorCopy(monitor, t) {
   if (!monitor || monitor.state === 'inactive') return null;
-  if (monitor.state === 'paused') return { title: 'Monitoring paused', detail: 'Steam launch monitoring is paused. The app is not controlling the game process.', tone: 'muted' };
-  if (monitor.state === 'completed') return { title: 'Drops exhausted', detail: 'Steam explicitly reported no remaining drops. Monitoring ended; the Steam game was not closed.', tone: 'good' };
-  return {
-    title: 'Launch requested · Monitoring',
-    detail: 'Steam received a launch request. Game running has not been confirmed by this integration.',
-    tone: 'active',
-  };
+  if (monitor.state === 'paused') return { title: t('trading.monitoringPaused'), detail: t('trading.pausedDetail'), tone: 'muted' };
+  if (monitor.state === 'completed') return { title: t('trading.dropsExhausted'), detail: t('trading.completedDetail'), tone: 'good' };
+  return { title: t('trading.launchMonitoring'), detail: t('trading.launchMonitoringDetail'), tone: 'active' };
 }
 
 function SummaryCard({ label, value, tone = 'default' }) {
@@ -63,6 +60,7 @@ function SummaryCard({ label, value, tone = 'default' }) {
 }
 
 export default function TradingCards() {
+  const { t } = useI18n();
   const [library, setLibrary] = useState({ success: null, games: [], summary: null, errorCode: null, cardDataAvailable: false });
   const [monitor, setMonitor] = useState({ state: 'inactive', monitorDurationMs: 0 });
   const [selectedAppId, setSelectedAppId] = useState(null);
@@ -119,7 +117,7 @@ export default function TradingCards() {
     () => library.games.find((game) => Number(game.appId) === Number(selectedAppId)) || null,
     [library.games, selectedAppId],
   );
-  const activeMonitorCopy = monitorCopy(monitor);
+  const activeMonitorCopy = monitorCopy(monitor, t);
   const selectedIsMonitored = selectedGame && Number(selectedGame.appId) === Number(monitor.appId) && monitor.state !== 'inactive';
 
   const selectGame = (game) => {
@@ -136,7 +134,7 @@ export default function TradingCards() {
       if (result) setMonitor(result);
       await load({ forceRefresh: true });
     } catch (error) {
-      setNotice({ tone: 'error', text: error?.message || 'Steam could not complete that Trading Card action.' });
+      setNotice({ tone: 'error', text: error?.message || t('trading.couldNotComplete') });
     } finally {
       setActionBusy(false);
     }
@@ -144,7 +142,7 @@ export default function TradingCards() {
 
   const startMonitor = () => runAction(async () => {
     const result = await window.steamAPI?.tradingCards.start(selectedGame.appId);
-    setNotice({ tone: 'info', text: 'Steam launch requested. Monitoring will refresh account card data in the background; game running is not confirmed here.' });
+    setNotice({ tone: 'info', text: t('trading.launchRequestedNotice') });
     return result;
   });
 
@@ -156,7 +154,7 @@ export default function TradingCards() {
 
   const stopMonitor = () => runAction(async () => {
     const result = await window.steamAPI?.tradingCards.stop();
-    setNotice({ tone: 'info', text: 'Monitoring stopped. Steam was not asked to close the game.' });
+    setNotice({ tone: 'info', text: t('trading.monitoringStopped') });
     return result;
   });
 
@@ -166,31 +164,31 @@ export default function TradingCards() {
     <section className="trading-page">
       <header className="trading-page-header">
         <div>
-          <p className="eyebrow">STEAM COMMUNITY ITEMS</p>
-          <h1>Trading Cards</h1>
-          <p>Understand card eligibility across your library and monitor a real Steam launch request without inventing game, drop, or playtime state.</p>
+          <p className="eyebrow">{t('trading.eyebrow')}</p>
+          <h1>{t('trading.title')}</h1>
+          <p>{t('trading.intro')}</p>
         </div>
         <button className="btn-secondary" type="button" onClick={() => load({ forceRefresh: true })} disabled={loading}>
-          <RefreshCw size={15} className={loading ? 'spin' : ''} /> Refresh data
+          <RefreshCw size={15} className={loading ? 'spin' : ''} /> {t('trading.refreshData')}
         </button>
       </header>
 
-      <div className="trading-summary-grid" aria-label="Trading Card library summary">
-        <SummaryCard label="Games with Cards" value={summary.withCards} tone="purple" />
-        <SummaryCard label="Games without Cards" value={summary.withoutCards} />
-        <SummaryCard label="Drops remaining" value={summary.dropsRemaining} tone="green" />
-        <SummaryCard label="Drops exhausted" value={summary.dropsExhausted} />
+      <div className="trading-summary-grid" aria-label={t('trading.summary')}>
+        <SummaryCard label={t('trading.gamesWithCards')} value={summary.withCards} tone="purple" />
+        <SummaryCard label={t('trading.gamesWithoutCards')} value={summary.withoutCards} />
+        <SummaryCard label={t('trading.dropsRemaining')} value={summary.dropsRemaining} tone="green" />
+        <SummaryCard label={t('trading.dropsExhausted')} value={summary.dropsExhausted} />
       </div>
 
       {activeMonitorCopy && (
         <div className={`trading-monitor-banner ${activeMonitorCopy.tone}`} role="status">
           <div>
-            <p className="trading-monitor-kicker">CURRENT STEAM LAUNCH MONITOR</p>
+            <p className="trading-monitor-kicker">{t('trading.currentMonitor')}</p>
             <strong>{activeMonitorCopy.title}</strong>
-            <span>Current game: {monitor.gameName} · Monitor session: {formatDuration(monitor.monitorDurationMs)}</span>
+            <span>{t('trading.currentGame', { game: monitor.gameName })} · {t('trading.monitorSession', { duration: formatDuration(monitor.monitorDurationMs) })}</span>
             <small>{activeMonitorCopy.detail}</small>
           </div>
-          {monitor.dropStatus === 'remaining' && <b>{monitor.remainingDrops} drops remaining</b>}
+          {monitor.dropStatus === 'remaining' && <b>{t('trading.dropsRemainingDetail', { count: monitor.remainingDrops })}</b>}
         </div>
       )}
 
@@ -200,8 +198,8 @@ export default function TradingCards() {
         <div className="trading-empty-state">
           <AlertCircle size={24} />
           <div>
-            <h2>Trading Card data is unavailable</h2>
-            <p>{library.errorCode === 'NO_API_KEY' ? 'Add a Steam Web API key in Settings, then refresh this page.' : 'Connect Steam and make sure the account library is accessible, then refresh this page.'}</p>
+            <h2>{t('trading.dataUnavailable')}</h2>
+            <p>{library.errorCode === 'NO_API_KEY' ? t('trading.apiKeyHelp') : t('trading.connectionHelp')}</p>
           </div>
         </div>
       ) : (
@@ -210,26 +208,26 @@ export default function TradingCards() {
             <div className="trading-toolbar">
               <label className="trading-search">
                 <Search size={15} />
-                <input value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Search games…" />
+                <input value={search} onChange={(event) => setSearch(event.target.value)} placeholder={t('trading.search')} aria-label={t('trading.search')} />
               </label>
-              <div className="trading-filter-group" role="group" aria-label="Trading Card filters">
+              <div className="trading-filter-group" role="group" aria-label={t('trading.filters')}>
                 {TRADING_CARD_FILTERS.map((entry) => (
-                  <button key={entry} type="button" className={filter === entry ? 'active' : ''} onClick={() => setFilter(entry)}>{entry}</button>
+                  <button key={entry} type="button" className={filter === entry ? 'active' : ''} onClick={() => setFilter(entry)}>{t({ All: 'trading.all', Eligible: 'trading.eligible', Unavailable: 'trading.unavailable' }[entry] || 'trading.all')}</button>
                 ))}
               </div>
-              <select value={sort} onChange={(event) => setSort(event.target.value)} aria-label="Trading Card sort order">
-                <option value="recent">Recently selected</option>
-                <option value="drops">Drops remaining</option>
-                <option value="alphabetical">Alphabetical</option>
+              <select value={sort} onChange={(event) => setSort(event.target.value)} aria-label={t('trading.sort')}>
+                <option value="recent">{t('trading.recentlySelected')}</option>
+                <option value="drops">{t('trading.dropsRemaining')}</option>
+                <option value="alphabetical">{t('trading.alphabetical')}</option>
               </select>
             </div>
 
             {!library.cardDataAvailable && library.success && (
-              <p className="trading-data-caveat">Account card-drop data is unavailable. Eligibility can still be shown only where Steam Store metadata explicitly provides it.</p>
+              <p className="trading-data-caveat">{t('trading.dataCaveat')}</p>
             )}
 
             <div className="trading-game-grid" aria-live="polite">
-              {loading ? <div className="trading-grid-loading"><Loader2 className="spin" size={22} /> Loading Trading Card library…</div> : visibleGames.map((game) => {
+              {loading ? <div className="trading-grid-loading"><Loader2 className="spin" size={22} /> {t('trading.loading')}</div> : visibleGames.map((game) => {
                 const state = cardState(game);
                 const monitored = Number(game.appId) === Number(monitor.appId) && monitor.state !== 'inactive';
                 return (
@@ -237,51 +235,51 @@ export default function TradingCards() {
                     <img src={game.headerImage} alt="" onError={(event) => { event.currentTarget.style.display = 'none'; }} />
                     <div className="trading-game-copy">
                       <strong title={game.name}>{game.name}</strong>
-                      <span className={`trading-status-pill ${state.tone}`}>{state.label}</span>
-                      <small>{state.detail(game.remainingDrops)}</small>
-                      {monitored && <em>Currently monitoring</em>}
+                      <span className={`trading-status-pill ${state.tone}`}>{t(state.labelKey)}</span>
+                      <small>{t(state.detailKey, { count: game.remainingDrops })}</small>
+                      {monitored && <em>{t('trading.currentlyMonitoring')}</em>}
                     </div>
                   </button>
                 );
               })}
-              {!loading && !visibleGames.length && <div className="trading-grid-loading">No games match this Trading Card view.</div>}
+              {!loading && !visibleGames.length && <div className="trading-grid-loading">{t('trading.noMatching')}</div>}
             </div>
           </div>
 
           <aside className="trading-details-pane" aria-live="polite">
             {!selectedGame ? (
-              <div className="trading-details-empty"><CreditCard size={24} /><p>Select a game to inspect its Trading Card status.</p></div>
+              <div className="trading-details-empty"><CreditCard size={24} /><p>{t('trading.selectGame')}</p></div>
             ) : (() => {
               const state = cardState(selectedGame);
               const canStart = selectedGame.eligibility === 'with-cards' && selectedGame.dropStatus === 'remaining' && !selectedIsMonitored && monitor.state === 'inactive';
               return (
                 <>
                   <img className="trading-details-image" src={selectedGame.headerImage} alt="" onError={(event) => { event.currentTarget.style.display = 'none'; }} />
-                  <p className="eyebrow">SELECTED GAME</p>
+                  <p className="eyebrow">{t('trading.selectedGame')}</p>
                   <h2>{selectedGame.name}</h2>
-                  <p className={`trading-details-status ${state.tone}`}>{state.label}</p>
-                  <p className="trading-details-description">{state.detail(selectedGame.remainingDrops)}</p>
+                  <p className={`trading-details-status ${state.tone}`}>{t(state.labelKey)}</p>
+                  <p className="trading-details-description">{t(state.detailKey, { count: selectedGame.remainingDrops })}</p>
 
-                  {selectedGame.eligibility === 'no-cards' && <div className="trading-limit-note">This game does not have Steam Trading Cards.</div>}
-                  {selectedGame.eligibility === 'unavailable' && <div className="trading-limit-note">Steam Store metadata did not confirm whether this game has Trading Cards. No launch monitor is available.</div>}
-                  {selectedGame.dropStatus === 'exhausted' && <div className="trading-limit-note">Steam reported that this game has no remaining card drops.</div>}
+                  {selectedGame.eligibility === 'no-cards' && <div className="trading-limit-note">{t('trading.noCardsDetail')}</div>}
+                  {selectedGame.eligibility === 'unavailable' && <div className="trading-limit-note">{t('trading.metadataUnavailable')}</div>}
+                  {selectedGame.dropStatus === 'exhausted' && <div className="trading-limit-note">{t('trading.exhaustedNote')}</div>}
 
                   {selectedIsMonitored && (
                     <div className="trading-session-detail">
-                      <span><Clock3 size={15} /> Monitor session</span>
+                      <span><Clock3 size={15} /> {t('trading.monitorSessionLabel')}</span>
                       <strong>{formatDuration(monitor.monitorDurationMs)}</strong>
-                      <small>Steam running: not confirmed by this integration</small>
+                      <small>{t('trading.runningUnconfirmed')}</small>
                     </div>
                   )}
 
                   <div className="trading-action-stack">
-                    {canStart && <button className="btn-primary" type="button" disabled={actionBusy} onClick={startMonitor}><Play size={15} /> Request Steam launch</button>}
-                    {selectedIsMonitored && ['monitoring', 'paused'].includes(monitor.state) && <button className="btn-secondary" type="button" disabled={actionBusy} onClick={pauseOrResume}>{monitor.state === 'paused' ? <Play size={15} /> : <Pause size={15} />} {monitor.state === 'paused' ? 'Resume monitoring' : 'Pause monitoring'}</button>}
-                    {selectedIsMonitored && monitor.state !== 'inactive' && <button className="btn-danger" type="button" disabled={actionBusy} onClick={stopMonitor}><Square size={15} /> Stop monitoring</button>}
-                    {!canStart && !selectedIsMonitored && selectedGame.dropStatus === 'remaining' && monitor.state !== 'inactive' && <div className="trading-limit-note">Only one launch monitor can be active. Stop the current monitor before selecting another game.</div>}
+                    {canStart && <button className="btn-primary" type="button" disabled={actionBusy} onClick={startMonitor}><Play size={15} /> {t('trading.requestLaunch')}</button>}
+                    {selectedIsMonitored && ['monitoring', 'paused'].includes(monitor.state) && <button className="btn-secondary" type="button" disabled={actionBusy} onClick={pauseOrResume}>{monitor.state === 'paused' ? <Play size={15} /> : <Pause size={15} />} {monitor.state === 'paused' ? t('trading.resumeMonitoring') : t('trading.pauseMonitoring')}</button>}
+                    {selectedIsMonitored && monitor.state !== 'inactive' && <button className="btn-danger" type="button" disabled={actionBusy} onClick={stopMonitor}><Square size={15} /> {t('trading.stopMonitoring')}</button>}
+                    {!canStart && !selectedIsMonitored && selectedGame.dropStatus === 'remaining' && monitor.state !== 'inactive' && <div className="trading-limit-note">{t('trading.oneMonitor')}</div>}
                   </div>
 
-                  <div className="trading-truth-note"><ExternalLink size={14} /> Request Steam launch opens the game through Steam. It does not guarantee a running game, a card drop, or an exact drop time.</div>
+                  <div className="trading-truth-note"><ExternalLink size={14} /> {t('trading.truthNote')}</div>
                 </>
               );
             })()}

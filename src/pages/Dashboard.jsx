@@ -14,13 +14,14 @@ import {
   Trophy,
   TrendingUp,
 } from 'lucide-react';
+import { useI18n } from '../i18n';
 
 const DATA_ERROR_COPY = {
-  NO_API_KEY: 'Add a Steam Web API key in Settings to load your library.',
-  INVALID_API_KEY: 'Steam rejected the configured API key. Update it in Settings.',
-  STEAM_NOT_CONNECTED: 'Steam needs to be connected before Overview can load data.',
-  PRIVATE_PROFILE: 'Steam returned no library data. Check that game details are public.',
-  FETCH_ERROR: 'Steam data could not be retrieved right now. Try again shortly.',
+  NO_API_KEY: 'library.apiKeyRequired',
+  INVALID_API_KEY: 'settings.invalidApiKey',
+  STEAM_NOT_CONNECTED: 'library.steamUnavailable',
+  PRIVATE_PROFILE: 'library.noGamesDetail',
+  FETCH_ERROR: 'dashboard.snapshotUnavailable',
 };
 
 function metricStateValue({ phase, value, unavailableValue = 'Unavailable' }) {
@@ -41,6 +42,7 @@ function formatCompletion(unlocked, total) {
  * an all-library achievement aggregate in memory.
  */
 export default function Dashboard({ steamStatus, selectedGame, onSteamReconnect }) {
+  const { locale, t } = useI18n();
   const navigate = useNavigate();
   const [isReconnecting, setIsReconnecting] = useState(false);
   const overviewRequestVersion = useRef(0);
@@ -110,44 +112,44 @@ export default function Dashboard({ steamStatus, selectedGame, onSteamReconnect 
 
     return [
       {
-        id: 'stat-games', icon: Gamepad2, label: 'Owned Games', color: 'purple',
-        value: metricStateValue({ phase, value: overview.games.length.toLocaleString() }),
+        id: 'stat-games', icon: Gamepad2, label: t('dashboard.ownedGames'), color: 'purple',
+        value: metricStateValue({ phase, value: overview.games.length.toLocaleString(locale === 'ar' ? 'ar-SA' : 'en-US'), unavailableValue: t('dashboard.unavailable') }),
         sub: phase === 'ready'
-          ? overview.games.length ? 'From your Steam library' : 'Steam returned no games'
-          : 'Steam library availability',
+          ? overview.games.length ? t('dashboard.fromLibrary') : t('dashboard.noGames')
+          : t('dashboard.libraryAvailability'),
       },
       {
-        id: 'stat-unlocked', icon: Trophy, label: 'Achievements Unlocked', color: 'blue',
-        value: hasCurrentGameData ? unlocked.toLocaleString() : metricStateValue({ phase, value: 'Select a game', unavailableValue: 'Unavailable' }),
-        sub: hasCurrentGameData ? `In ${selectedGame.name}` : selectedGame ? 'Achievement data unavailable' : 'Choose a game to view progress',
+        id: 'stat-unlocked', icon: Trophy, label: t('dashboard.achievementsUnlocked'), color: 'blue',
+        value: hasCurrentGameData ? unlocked.toLocaleString(locale === 'ar' ? 'ar-SA' : 'en-US') : metricStateValue({ phase, value: t('dashboard.selectGame'), unavailableValue: t('dashboard.unavailable') }),
+        sub: hasCurrentGameData ? selectedGame.name : selectedGame ? t('dashboard.achievementUnavailable') : t('dashboard.chooseProgress'),
       },
       {
-        id: 'stat-rate', icon: Target, label: 'Completion Rate', color: 'indigo',
-        value: hasCurrentGameData ? formatCompletion(unlocked, total) : metricStateValue({ phase, value: 'Select a game', unavailableValue: 'Unavailable' }),
-        sub: hasCurrentGameData ? total ? `${unlocked} of ${total} unlocked` : 'This game has no achievement data' : 'For the selected game',
+        id: 'stat-rate', icon: Target, label: t('dashboard.completionRate'), color: 'indigo',
+        value: hasCurrentGameData ? formatCompletion(unlocked, total) : metricStateValue({ phase, value: t('dashboard.selectGame'), unavailableValue: t('dashboard.unavailable') }),
+        sub: hasCurrentGameData ? total ? `${unlocked} / ${total}` : t('dashboard.noAchievementData') : t('dashboard.selectedGameOnly'),
       },
       {
-        id: 'stat-activity', icon: TrendingUp, label: 'Recent Activity', color: 'violet',
+        id: 'stat-activity', icon: TrendingUp, label: t('dashboard.recentActivity'), color: 'violet',
         value: (() => {
-          if (!selectedGame) return metricStateValue({ phase, value: 'Select a game', unavailableValue: 'Unavailable' });
+          if (!selectedGame) return metricStateValue({ phase, value: t('dashboard.selectGame'), unavailableValue: t('dashboard.unavailable') });
           const gameData = overview.games.find(g => String(g.appId) === String(selectedGame.appId));
           const mins = gameData?.playtime2Weeks ?? 0;
-          if (mins <= 0) return 'None reported';
+          if (mins <= 0) return t('dashboard.noneReported');
           const hrs = Math.floor(mins / 60);
           const rem = mins % 60;
           return hrs > 0 ? `${hrs}h ${rem}m` : `${rem}m`;
         })(),
         sub: (() => {
-          if (!selectedGame) return 'Select a game to view recent activity';
+          if (!selectedGame) return t('dashboard.selectRecent');
           const gameData = overview.games.find(g => String(g.appId) === String(selectedGame.appId));
           const mins = gameData?.playtime2Weeks ?? 0;
           return mins > 0
-            ? `Played in the last 2 weeks · ${selectedGame.name}`
-            : 'No recent activity reported by Steam';
+            ? t('dashboard.recentActivityFor', { game: selectedGame.name })
+            : t('status.noRecent');
         })(),
       },
     ];
-  }, [overview, selectedGame]);
+  }, [locale, overview, selectedGame, t]);
 
   const featuredGames = useMemo(() => (
     [...overview.games]
@@ -156,12 +158,12 @@ export default function Dashboard({ steamStatus, selectedGame, onSteamReconnect 
   ), [overview.games]);
 
   const greeting = steamStatus.connected && steamStatus.playerName
-    ? `Welcome back, ${steamStatus.playerName}`
-    : 'Smart Steam Unlocker';
+    ? t('dashboard.welcome', { name: steamStatus.playerName })
+    : t('app.name');
   const subline = steamStatus.connected
-    ? selectedGame ? `Selected game: ${selectedGame.name}.` : 'Your Steam client is connected. Choose a game to begin.'
-    : 'Connect to Steam to start managing your achievements.';
-  const overviewError = overview.errorCode ? DATA_ERROR_COPY[overview.errorCode] || DATA_ERROR_COPY.FETCH_ERROR : null;
+    ? selectedGame ? t('dashboard.selectedGame', { game: selectedGame.name }) : t('dashboard.connectedStart')
+    : t('dashboard.connectStart');
+  const overviewError = overview.errorCode ? t(DATA_ERROR_COPY[overview.errorCode] || DATA_ERROR_COPY.FETCH_ERROR) : null;
   const openGameSelection = () => navigate('/library');
 
   return (
@@ -171,16 +173,16 @@ export default function Dashboard({ steamStatus, selectedGame, onSteamReconnect 
         <div className="dashboard-hero-content">
           <div className="dashboard-hero-icon" aria-hidden="true"><Trophy size={25} /></div>
           <div>
-            <p className="dashboard-eyebrow">Steam achievement companion</p>
+            <p className="dashboard-eyebrow">{t('dashboard.companion')}</p>
             <h1 id="dashboard-welcome">{greeting}</h1>
             <p>{subline}</p>
           </div>
         </div>
         <div className="dashboard-hero-actions">
           <button className="hero-cta" onClick={() => selectedGame ? navigate('/achievements') : openGameSelection()}>
-            {selectedGame ? 'Open Selected Game' : 'Browse Library'} <ChevronRight size={15} />
+            {selectedGame ? t('dashboard.openSelected') : t('dashboard.browseLibrary')} <ChevronRight size={15} className="directional-chevron" />
           </button>
-          <button className="btn-secondary" onClick={() => navigate('/settings')}><Settings size={13} /> Settings</button>
+          <button className="btn-secondary" onClick={() => navigate('/settings')}><Settings size={13} /> {t('nav.settings')}</button>
         </div>
       </section>
 
@@ -188,11 +190,11 @@ export default function Dashboard({ steamStatus, selectedGame, onSteamReconnect 
         <div className="alert-card" role="alert">
           <AlertCircle size={18} color="#fbbf24" style={{ flexShrink: 0, marginTop: 1 }} />
           <div style={{ flex: 1 }}>
-            <p className="alert-title">Steam is not connected</p>
-            <p className="alert-sub">Start the Steam client on this machine, then establish a connection to load your library and achievement data.</p>
+            <p className="alert-title">{t('dashboard.steamDisconnected')}</p>
+            <p className="alert-sub">{t('dashboard.steamDisconnectedDetail')}</p>
           </div>
           <button className="btn-secondary" onClick={handleReconnect} disabled={isReconnecting}>
-            {isReconnecting ? <><Loader2 size={13} className="animate-spin" /> Connecting…</> : <><RefreshCw size={13} /> Connect to Steam</>}
+            {isReconnecting ? <><Loader2 size={13} className="animate-spin" /> {t('dashboard.connecting')}</> : <><RefreshCw size={13} /> {t('dashboard.connectSteam')}</>}
           </button>
         </div>
       )}
@@ -200,18 +202,18 @@ export default function Dashboard({ steamStatus, selectedGame, onSteamReconnect 
       <section className="dashboard-overview" aria-labelledby="section-overview">
         <div className="dashboard-section-heading">
           <div>
-            <p className="dashboard-eyebrow">At a glance</p>
-            <h2 id="section-overview"><Sparkles size={15} aria-hidden="true" /> Overview</h2>
+            <p className="dashboard-eyebrow">{t('dashboard.glance')}</p>
+            <h2 id="section-overview"><Sparkles size={15} aria-hidden="true" /> {t('dashboard.overview')}</h2>
           </div>
-          {overview.phase === 'loading' ? <span className="dashboard-data-state"><Loader2 size={13} className="animate-spin" /> Updating</span> : (
-            <button className="dashboard-refresh" onClick={loadOverview} disabled={overview.phase === 'unavailable'} title="Refresh Overview data"><RefreshCw size={13} /> Refresh</button>
+          {overview.phase === 'loading' ? <span className="dashboard-data-state"><Loader2 size={13} className="animate-spin" /> {t('dashboard.updating')}</span> : (
+            <button className="dashboard-refresh" onClick={loadOverview} disabled={overview.phase === 'unavailable'} title={t('dashboard.refreshOverview')}><RefreshCw size={13} /> {t('dashboard.refresh')}</button>
           )}
         </div>
 
         {overviewError && (
           <div className="dashboard-data-message" role="alert">
             <AlertCircle size={16} /> <span>{overviewError}</span>
-            <button type="button" onClick={loadOverview}>Try again</button>
+            <button type="button" onClick={loadOverview}>{t('dashboard.tryAgain')}</button>
           </div>
         )}
 
@@ -232,7 +234,7 @@ export default function Dashboard({ steamStatus, selectedGame, onSteamReconnect 
                 } : undefined}
                 role={opensGameSelection ? 'button' : undefined}
                 tabIndex={opensGameSelection ? 0 : undefined}
-                aria-label={opensGameSelection ? `Choose a game to view ${label.toLowerCase()}` : undefined}
+                aria-label={opensGameSelection ? t('dashboard.chooseFor', { label }) : undefined}
               >
                 <div className={`stat-icon stat-icon--${color}`} aria-hidden="true"><Icon size={19} /></div>
                 <div>
@@ -245,30 +247,30 @@ export default function Dashboard({ steamStatus, selectedGame, onSteamReconnect 
           })}
         </div>
         {selectedGame && overview.achievementResult && !overview.achievementResult.success && overview.phase === 'ready' && (
-          <p className="dashboard-inline-note">Achievement progress for {selectedGame.name} is unavailable. Library data remains up to date.</p>
+          <p className="dashboard-inline-note">{t('dashboard.progressUnavailable', { game: selectedGame.name })}</p>
         )}
       </section>
 
-      <section className="dashboard-lower-grid" aria-label="Dashboard actions and current game">
+      <section className="dashboard-lower-grid" aria-label={t('dashboard.actionsAria')}>
         <article className="dashboard-current-card">
           <div className="dashboard-card-heading">
             <div className="dashboard-card-icon"><Gamepad2 size={16} /></div>
-            <div><p className="dashboard-eyebrow">Selected game</p><h2>Your current selection</h2></div>
+            <div><p className="dashboard-eyebrow">{t('nav.selectedGame')}</p><h2>{t('dashboard.currentSelection')}</h2></div>
           </div>
           {selectedGame ? (
             <>
               <p className="dashboard-current-game">{selectedGame.name}</p>
-              <p>This game was selected from your library. Review its achievements or continue its existing schedule.</p>
+              <p>{t('dashboard.selectedFromLibrary')}</p>
               <div className="dashboard-current-actions">
-                <button className="btn-success" onClick={() => navigate('/achievements')}><Trophy size={14} /> Browse achievements</button>
-                <button className="btn-secondary" onClick={() => navigate('/library')}><BookOpen size={14} /> Change game</button>
+                <button className="btn-success" onClick={() => navigate('/achievements')}><Trophy size={14} /> {t('dashboard.browseAchievements')}</button>
+                <button className="btn-secondary" onClick={() => navigate('/library')}><BookOpen size={14} /> {t('dashboard.changeGame')}</button>
               </div>
             </>
           ) : (
             <>
-              <p className="dashboard-current-game">No game selected</p>
-              <p>Choose a game from your Steam library to view its achievement progress.</p>
-              <button className="btn-secondary" onClick={openGameSelection}><BookOpen size={14} /> Browse Library</button>
+              <p className="dashboard-current-game">{t('dashboard.noGameSelected')}</p>
+              <p>{t('dashboard.chooseProgress')}</p>
+              <button className="btn-secondary" onClick={openGameSelection}><BookOpen size={14} /> {t('dashboard.browseLibrary')}</button>
             </>
           )}
         </article>
@@ -276,12 +278,12 @@ export default function Dashboard({ steamStatus, selectedGame, onSteamReconnect 
         <article className="dashboard-actions-card">
           <div className="dashboard-card-heading">
             <div className="dashboard-card-icon"><CheckCircle2 size={16} /></div>
-            <div><p className="dashboard-eyebrow">Quick actions</p><h2>Keep moving</h2></div>
+            <div><p className="dashboard-eyebrow">{t('dashboard.quickActions')}</p><h2>{t('dashboard.keepMoving')}</h2></div>
           </div>
           <div className="dashboard-action-list">
-            <button onClick={openGameSelection}><BookOpen size={15} /><span><strong>Open Library</strong><small>Browse the games Steam has returned</small></span><ChevronRight size={15} /></button>
-            <button onClick={() => selectedGame ? navigate('/achievements') : openGameSelection()}><Trophy size={15} /><span><strong>{selectedGame ? 'Browse Achievements' : 'Choose a Game'}</strong><small>{selectedGame ? `View progress for ${selectedGame.name}` : 'Select a game to view achievements'}</small></span><ChevronRight size={15} /></button>
-            <button onClick={() => navigate('/settings')}><Settings size={15} /><span><strong>Steam Settings</strong><small>Manage connection and Web API access</small></span><ChevronRight size={15} /></button>
+            <button onClick={openGameSelection}><BookOpen size={15} /><span><strong>{t('dashboard.openLibrary')}</strong><small>{t('dashboard.browseReturned')}</small></span><ChevronRight size={15} className="directional-chevron" /></button>
+            <button onClick={() => selectedGame ? navigate('/achievements') : openGameSelection()}><Trophy size={15} /><span><strong>{selectedGame ? t('dashboard.browseAchievements') : t('dashboard.chooseGame')}</strong><small>{selectedGame ? t('dashboard.viewProgress', { game: selectedGame.name }) : t('dashboard.selectToView')}</small></span><ChevronRight size={15} className="directional-chevron" /></button>
+            <button onClick={() => navigate('/settings')}><Settings size={15} /><span><strong>{t('dashboard.steamSettings')}</strong><small>{t('dashboard.manageConnection')}</small></span><ChevronRight size={15} className="directional-chevron" /></button>
           </div>
         </article>
       </section>
@@ -289,13 +291,13 @@ export default function Dashboard({ steamStatus, selectedGame, onSteamReconnect 
       <section className="dashboard-library-snapshot" aria-labelledby="dashboard-library-snapshot-title">
         <div className="dashboard-section-heading">
           <div>
-            <p className="dashboard-eyebrow">Your library</p>
-            <h2 id="dashboard-library-snapshot-title"><BookOpen size={15} aria-hidden="true" /> Library Snapshot</h2>
+            <p className="dashboard-eyebrow">{t('dashboard.yourLibrary')}</p>
+            <h2 id="dashboard-library-snapshot-title"><BookOpen size={15} aria-hidden="true" /> {t('dashboard.librarySnapshot')}</h2>
           </div>
-          <button className="dashboard-refresh" onClick={openGameSelection}>View library <ChevronRight size={13} /></button>
+          <button className="dashboard-refresh" onClick={openGameSelection}>{t('dashboard.viewLibrary')} <ChevronRight size={13} className="directional-chevron" /></button>
         </div>
         {overview.phase === 'loading' ? (
-          <div className="dashboard-snapshot-state"><Loader2 size={15} className="animate-spin" /> Loading library details…</div>
+          <div className="dashboard-snapshot-state"><Loader2 size={15} className="animate-spin" /> {t('dashboard.loadingLibrary')}</div>
         ) : featuredGames.length ? (
           <div className="dashboard-snapshot-list">
             {featuredGames.map((game) => {
@@ -304,15 +306,15 @@ export default function Dashboard({ steamStatus, selectedGame, onSteamReconnect 
                 <button key={game.appId} type="button" onClick={openGameSelection}>
                   <span className="dashboard-snapshot-game-mark"><Gamepad2 size={14} /></span>
                   <span className="dashboard-snapshot-game-name">{game.name}</span>
-                  <span className="dashboard-snapshot-game-meta">{played ? `${played.toLocaleString()}h played` : 'Not played yet'}</span>
-                  <ChevronRight size={14} />
+                  <span className="dashboard-snapshot-game-meta">{played ? t('dashboard.played', { hours: played.toLocaleString(locale === 'ar' ? 'ar-SA' : 'en-US') }) : t('dashboard.notPlayed')}</span>
+                  <ChevronRight size={14} className="directional-chevron" />
                 </button>
               );
             })}
           </div>
         ) : (
           <div className="dashboard-snapshot-state">
-            {overview.phase === 'ready' ? 'Steam has not returned any games for this library.' : 'Connect Steam and add a Web API key to view your library snapshot.'}
+            {overview.phase === 'ready' ? t('dashboard.noSnapshot') : t('dashboard.snapshotUnavailable')}
           </div>
         )}
       </section>

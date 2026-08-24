@@ -33,9 +33,9 @@ test('first run remains library-led and does not open achievement data without a
   const dashboard = source('src/pages/Dashboard.jsx');
   const achievements = source('src/pages/Achievements.jsx');
 
-  assert.match(dashboard, /No game selected/);
-  assert.match(dashboard, /Choose a game from your Steam library to view its achievement progress\./);
-  assert.match(dashboard, /Browse Library/);
+  assert.match(dashboard, /t\('dashboard\.noGameSelected'\)/);
+  assert.match(dashboard, /t\('dashboard\.chooseProgress'\)/);
+  assert.match(dashboard, /t\('dashboard\.browseLibrary'\)/);
   assert.match(achievements, /if \(!selectedGame\) return undefined;/);
   assert.match(achievements, /t\('achievements\.selectGame'\)/);
   assert.match(achievements, /id="btn-go-to-library"/);
@@ -47,12 +47,12 @@ test('selected-game and activity labels remain truthful and independent', () => 
   const card = source('src/components/GameCard.jsx');
   const steamManager = source('electron/steamManager.js');
 
-  assert.match(dashboard, /Selected game: \$\{selectedGame\.name\}\./);
-  assert.match(dashboard, /dashboard-eyebrow">Selected game/);
-  assert.match(dashboard, /This game was selected from your library\./);
-  assert.match(dashboard, /Recent Activity/);
+  assert.match(dashboard, /t\('dashboard\.selectedGame', \{ game: selectedGame\.name \}\)/);
+  assert.match(dashboard, /t\('nav\.selectedGame'\)/);
+  assert.match(dashboard, /t\('dashboard\.selectedFromLibrary'\)/);
+  assert.match(dashboard, /t\('dashboard\.recentActivity'\)/);
   assert.match(dashboard, /playtime2Weeks/);
-  assert.match(dashboard, /No recent activity reported by Steam/);
+  assert.match(dashboard, /t\('status\.noRecent'\)/);
   assert.doesNotMatch(dashboard, /label: 'Last Activity'/);
   assert.doesNotMatch(dashboard, /Steam library data has no reliable last-played timestamp/);
   assert.match(sidebar, /t\('nav\.selectedGame'\)/);
@@ -121,7 +121,7 @@ test('author ownership branding is visible in Sidebar and Settings through the t
   assert.match(sidebar, /GitHub<\/button>/);
   assert.match(sidebar, /Website<\/button>/);
   assert.match(settings, /t\('settings\.about'\)/);
-  assert.match(settings, /Created by Khalid Alotaibi/);
+  assert.match(settings, /t\('settings\.creator'\)/);
   assert.match(settings, /t\('settings\.repository'\)/);
   assert.match(handlers, /'https:\/\/github\.com\/xKHl'/);
   assert.match(handlers, /'https:\/\/github\.com\/xKHl\/Smart-Steam-Unlocker'/);

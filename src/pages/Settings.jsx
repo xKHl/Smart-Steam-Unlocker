@@ -6,13 +6,13 @@ import {
 import { useI18n } from '../i18n';
 
 const ERROR_MESSAGES = {
-  NO_API_KEY: 'No API key is stored yet.',
-  CREDENTIAL_MIGRATION_REQUIRED: 'Your previous key needs secure storage migration. Configure secure storage, then save a replacement key.',
-  CREDENTIAL_STORAGE_UNAVAILABLE: 'Secure credential storage is unavailable on this system. Configure your operating system credential store, then try again.',
-  INVALID_API_KEY: 'Steam rejected the configured key. Replace it in Settings.',
-  PRIVATE_PROFILE: 'Steam returned no library data. Check that game details are public.',
-  STEAM_NOT_CONNECTED: 'Steam is not connected. Open Steam and restart the app.',
-  FETCH_ERROR: 'Network error contacting the Steam API. Check your internet connection.',
+  NO_API_KEY: 'settings.apiKeyNotStored',
+  CREDENTIAL_MIGRATION_REQUIRED: 'settings.migrationRequired',
+  CREDENTIAL_STORAGE_UNAVAILABLE: 'settings.storageUnavailable',
+  INVALID_API_KEY: 'settings.invalidApiKey',
+  PRIVATE_PROFILE: 'settings.privateProfile',
+  STEAM_NOT_CONNECTED: 'settings.steamDisconnected',
+  FETCH_ERROR: 'settings.networkError',
 };
 
 /**
@@ -56,7 +56,7 @@ export default function Settings() {
       setSaved(true);
       setTimeout(() => setSaved(false), 2500);
     } catch (error) {
-      setTestResult({ ok: false, msg: error instanceof Error ? error.message : 'The key could not be stored securely.' });
+      setTestResult({ ok: false, msg: error instanceof Error ? error.message : t('settings.keyStoreFailed') });
     } finally {
       setSaving(false);
     }
@@ -70,7 +70,7 @@ export default function Settings() {
       if (status) setCredentialStatus(status);
       setApiKeyEntry('');
     } catch (error) {
-      setTestResult({ ok: false, msg: error instanceof Error ? error.message : 'The stored key could not be cleared.' });
+      setTestResult({ ok: false, msg: error instanceof Error ? error.message : t('settings.keyClearFailed') });
     } finally {
       setClearing(false);
     }
@@ -82,13 +82,13 @@ export default function Settings() {
     try {
       const result = await window.steamAPI?.steam.getOwnedGames({ forceRefresh: true });
       if (result?.success) {
-        setTestResult({ ok: true, msg: `Connected. Steam returned ${result.count.toLocaleString()} owned games.` });
+        setTestResult({ ok: true, msg: t('settings.connectionVerified', { count: result.count.toLocaleString(locale === 'ar' ? 'ar-SA' : 'en-US') }) });
       } else {
-        const msg = ERROR_MESSAGES[result?.errorCode] ?? result?.detail ?? 'Steam connection could not be verified.';
-        setTestResult({ ok: false, msg });
+        const errorKey = ERROR_MESSAGES[result?.errorCode];
+        setTestResult({ ok: false, msg: errorKey ? t(errorKey) : result?.detail ?? t('settings.connectionFailed') });
       }
     } catch (error) {
-      setTestResult({ ok: false, msg: error instanceof Error ? error.message : 'Steam connection could not be verified.' });
+      setTestResult({ ok: false, msg: error instanceof Error ? error.message : t('settings.connectionFailed') });
     } finally {
       setTesting(false);
     }
@@ -125,20 +125,20 @@ export default function Settings() {
           <div className="settings-icon-wrap"><Key size={18} color="#a78bfa" /></div>
           <div>
             <h2 className="settings-section-title">{t('settings.apiKey')}</h2>
-            <p className="settings-section-sub">Stored in operating-system-backed encrypted storage. The app never displays a saved key.</p>
+            <p className="settings-section-sub">{t('settings.secureStorage')}</p>
           </div>
         </div>
 
         {credentialStatus.hasKey && (
           <div className="settings-privacy-note" role="status">
             <ShieldCheck size={14} color="#4ade80" style={{ flexShrink: 0 }} />
-            <p><strong>Secure key configured</strong>{credentialStatus.maskedLastFour ? ` (${credentialStatus.maskedLastFour})` : ''}. Enter a new value below only to replace it.</p>
+            <p><strong>{t('settings.secureConfigured')}</strong>{credentialStatus.maskedLastFour ? ` (${credentialStatus.maskedLastFour})` : ''}. {t('settings.replaceKey')}</p>
           </div>
         )}
         {(credentialStatus.migrationPending || secureStorageUnavailable) && (
           <div className="test-result-banner test-err" role="alert">
             <AlertCircle size={15} color="#f87171" />
-            <span>{credentialStatus.migrationPending ? 'A legacy plaintext key was preserved but cannot be migrated until secure storage is available. Save a replacement key after configuring secure storage.' : 'Secure credential storage is unavailable. The app will not save or use a plaintext API key.'}</span>
+            <span>{credentialStatus.migrationPending ? t('settings.legacyMigration') : t('settings.storageUnavailable')}</span>
           </div>
         )}
 
@@ -148,14 +148,14 @@ export default function Settings() {
               id="input-api-key"
               type={showKey ? 'text' : 'password'}
               className="api-key-input"
-              placeholder="Paste a replacement 32-character API key…"
+              placeholder={t('settings.replacementPlaceholder')}
               value={apiKeyEntry}
               onChange={(event) => setApiKeyEntry(event.target.value)}
               spellCheck={false}
               autoComplete="off"
-              aria-label="Replacement Steam Web API key"
+              aria-label={t('settings.replacementAria')}
             />
-            <button className="api-key-toggle" onClick={() => setShowKey((value) => !value)} title={showKey ? 'Hide entered key' : 'Show entered key'} aria-label={showKey ? 'Hide entered API key' : 'Show entered API key'} type="button">
+            <button className="api-key-toggle" onClick={() => setShowKey((value) => !value)} title={showKey ? t('settings.hideKey') : t('settings.showKey')} aria-label={showKey ? t('settings.hideKey') : t('settings.showKey')} type="button">
               {showKey ? <EyeOff size={15} /> : <Eye size={15} />}
             </button>
           </div>
@@ -187,16 +187,16 @@ export default function Settings() {
       </div>
 
       <div className="settings-card">
-        <h2 className="settings-section-title" style={{ marginBottom: 16 }}>How to get a Steam Web API Key</h2>
+        <h2 className="settings-section-title" style={{ marginBottom: 16 }}>{t('settings.howTo')}</h2>
         <ol className="settings-steps">
-          <li><span className="step-num">1</span><span>Go to <a href="https://steamcommunity.com/dev/apikey" target="_blank" rel="noreferrer" className="settings-link">steamcommunity.com/dev/apikey <ExternalLink size={11} style={{ display: 'inline', marginLeft: 3, verticalAlign: 'middle' }} /></a> while logged in to Steam.</span></li>
-          <li><span className="step-num">2</span><span>Enter any domain name (for example <code className="inline-code">localhost</code>) and register the key.</span></li>
-          <li><span className="step-num">3</span><span>Paste the key above. It is submitted once to the main process and is not returned to this page.</span></li>
-          <li><span className="step-num">4</span><span>Ensure the Steam profile’s <strong>Game details</strong> privacy setting permits the read operations you need.</span></li>
+          <li><span className="step-num">1</span><span>{t('settings.stepOne')} <a href="https://steamcommunity.com/dev/apikey" target="_blank" rel="noreferrer" className="settings-link">steamcommunity.com/dev/apikey <ExternalLink size={11} style={{ display: 'inline', marginLeft: 3, verticalAlign: 'middle' }} /></a></span></li>
+          <li><span className="step-num">2</span><span>{t('settings.stepTwo')}</span></li>
+          <li><span className="step-num">3</span><span>{t('settings.stepThree')}</span></li>
+          <li><span className="step-num">4</span><span>{t('settings.stepFour')}</span></li>
         </ol>
         <div className="settings-privacy-note">
           <ShieldCheck size={14} color="#4ade80" style={{ flexShrink: 0 }} />
-          <p>The app uses secure operating-system storage when available. A previously exposed key should be revoked and replaced; saving a new key does not revoke the old one.</p>
+          <p>{t('settings.secureAdvice')}</p>
         </div>
       </div>
 
@@ -206,10 +206,10 @@ export default function Settings() {
           <div>
             <p className="settings-about-eyebrow">{t('settings.about')}</p>
             <h2 id="settings-about-title" className="settings-section-title">Smart Steam Unlocker</h2>
-            <p className="settings-section-sub">Created by Khalid Alotaibi</p>
+            <p className="settings-section-sub">{t('settings.creator')}</p>
           </div>
         </div>
-            <p className="settings-about-description">A focused Steam achievement companion designed around clear progress, safe automation controls, and transparent Steam state.</p>
+            <p className="settings-about-description">{t('settings.description')}</p>
         <div className="settings-about-links" role="group" aria-label={t('settings.projectLinks')}>
           <button type="button" className="settings-about-link" onClick={() => openExternal('https://github.com/xKHl/Smart-Steam-Unlocker')}>
             <Github size={15} />
@@ -218,7 +218,7 @@ export default function Settings() {
           </button>
           <button type="button" className="settings-about-link" onClick={() => openExternal('https://alotaibi.dev')}>
             <Globe2 size={15} />
-            <span><strong>Website</strong><small>alotaibi.dev</small></span>
+            <span><strong>{t('settings.website')}</strong><small className="technical-value">alotaibi.dev</small></span>
             <ExternalLink size={13} aria-hidden="true" />
           </button>
         </div>

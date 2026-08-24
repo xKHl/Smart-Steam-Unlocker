@@ -166,9 +166,10 @@ test('Trading Cards stays separate from Achievements and uses transparent Steam 
 
   assert.match(app, /path="\/trading-cards"/);
   assert.match(sidebar, /nav-trading-cards/);
-  assert.match(page, /This game does not have Steam Trading Cards\./);
-  assert.match(page, /game running is not confirmed/i);
-  assert.match(page, /Request Steam launch/);
+  assert.match(page, /useI18n/);
+  assert.match(page, /t\('trading\.noCardsDetail'\)/);
+  assert.match(page, /t\('trading\.runningUnconfirmed'\)/);
+  assert.match(page, /t\('trading\.requestLaunch'\)/);
   assert.doesNotMatch(page, /card every|drop at|estimated drop/i);
   assert.match(service, /runningEvidence: 'unavailable'/);
   assert.match(handlers, /shell\.openExternal\(`steam:\/\/run\/\$\{appId\}`\)/);

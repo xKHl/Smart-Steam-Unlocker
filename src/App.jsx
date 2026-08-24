@@ -41,6 +41,7 @@ function SwitchingOverlay({ game }) {
 // ─────────────────────────────────────────────────────────────────────────────
 
 function AppContent() {
+  const { direction } = useI18n();
   const navigate = useNavigate();
   const location = useLocation();
   const diagnosticsEnabled = useRef(false);
@@ -167,13 +168,13 @@ function AppContent() {
     <>
       {isSwitching && <SwitchingOverlay game={selectedGame} />}
 
-      <div className="app-shell" style={{ opacity: isSwitching ? 0.4 : 1, transition: 'opacity 300ms' }}>
+      <div className={`app-shell${direction === 'rtl' ? ' app-shell--rtl' : ''}`} style={{ opacity: isSwitching ? 0.4 : 1, transition: 'opacity 300ms' }}>
         <Header steamStatus={steamStatus} />
 
-        <div className="app-body">
+        <div className={`app-body${direction === 'rtl' ? ' app-body--rtl' : ''}`}>
           <Sidebar steamStatus={steamStatus} selectedGame={selectedGame} version={appVersion} />
 
-          <main className="main-content">
+          <main className={`main-content${direction === 'rtl' ? ' main-content--rtl' : ''}`}>
             <Routes>
               <Route path="/"             element={<Dashboard    steamStatus={steamStatus} selectedGame={selectedGame} onSteamReconnect={handleSteamReconnect} />} />
               <Route path="/library"      element={<Library      selectedGame={selectedGame} onGameSelect={handleGameSelect} switchError={switchGameError} onDismissSwitchError={() => setSwitchGameError(null)} />} />

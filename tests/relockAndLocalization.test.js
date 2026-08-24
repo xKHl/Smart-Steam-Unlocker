@@ -88,3 +88,58 @@ test('English and Arabic locale infrastructure persists only supported values an
   assert.match(styles, /html\[dir='rtl'\] \.sidebar \{ border-right: 0; border-left: 1px solid var\(--border\); \}/);
   assert.match(styles, /html\[dir='rtl'\] \.nav-link-active::before/);
 });
+
+
+test('v0.3.0 Arabic mode uses explicit shell ordering and a complete major-page translation contract', async () => {
+  const app = source('src/App.jsx');
+  const styles = source('src/index.css');
+  const dashboard = source('src/pages/Dashboard.jsx');
+  const library = source('src/pages/Library.jsx');
+  const scheduler = source('src/components/HumanizedSchedulePanel.jsx');
+  const trading = source('src/pages/TradingCards.jsx');
+  const integrity = source('src/pages/AchievementIntegrity.jsx');
+  const settings = source('src/pages/Settings.jsx');
+  const { translations } = await import('../src/i18n/translations.mjs');
+
+  assert.match(app, /app-shell--rtl/);
+  assert.match(app, /app-body--rtl/);
+  assert.match(app, /main-content--rtl/);
+  assert.match(styles, /\.app-shell--rtl \.app-body--rtl > \.main-content--rtl \{[\s\S]*?order: 1/);
+  assert.match(styles, /\.app-shell--rtl \.app-body--rtl > \.sidebar \{[\s\S]*?order: 2/);
+  assert.match(styles, /\.app-shell--rtl \.app-body--rtl > \.sidebar \{[\s\S]*?border-left: 1px solid var\(--border\)/);
+  assert.match(styles, /\.app-shell--rtl \.nav-link-active::before/);
+  assert.match(styles, /\.technical-value/);
+  assert.match(styles, /@media \(max-width: 760px\) \{[\s\S]*?\.app-shell--rtl \.app-body--rtl/);
+
+  assert.equal(translations.ar.mode.humanized, 'محاكاة الإنسان');
+  assert.equal(translations.ar.common.relock, 'إعادة قفل الإنجاز');
+  assert.equal(translations.ar.common.unlock, 'فتح الإنجاز');
+  assert.equal(translations.ar.integrity.title, 'سلامة الإنجازات');
+  assert.equal(translations.ar.integrity.scan, 'فحص');
+  assert.equal(translations.ar.integrity.analyze, 'تحليل');
+  assert.equal(translations.ar.integrity.explain, 'التفسير');
+  assert.equal(translations.ar.integrity.score, 'درجة سلامة الإنجازات');
+  assert.equal(translations.ar.integrity.normal, 'طبيعي');
+  assert.equal(translations.ar.integrity.unusual, 'غير معتاد');
+  assert.equal(translations.ar.integrity.highAnomaly, 'شذوذ مرتفع');
+  assert.equal(translations.ar.integrity.extremeAnomaly, 'شذوذ شديد');
+  assert.equal(translations.ar.integrity.viewEvidence, 'عرض الأدلة');
+
+  for (const [page, key] of [
+    [dashboard, 'dashboard.companion'],
+    [library, 'library.gameLibrary'],
+    [scheduler, 'scheduler.title'],
+    [trading, 'trading.title'],
+    [integrity, 'integrity.title'],
+    [settings, 'settings.howTo'],
+  ]) {
+    assert.match(page, /useI18n/);
+    assert.ok(page.includes(`t('${key}')`), `${key} must be rendered through the translation helper`);
+  }
+
+  for (const locale of ['en', 'ar']) {
+    for (const key of ['dashboard', 'library', 'scheduler', 'trading', 'integrity', 'settings']) {
+      assert.ok(translations[locale][key], `${locale}.${key} must exist`);
+    }
+  }
+});

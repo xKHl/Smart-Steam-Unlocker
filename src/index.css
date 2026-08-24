@@ -2594,3 +2594,97 @@ html[dir='rtl'] .directional-chevron { transform: scaleX(-1); }
   border-color: rgba(167, 139, 250, 0.6) !important;
   background: rgba(124, 58, 237, 0.18) !important;
 }
+
+/* ─── v0.3.0 Arabic shell: explicit structure, not direction inheritance ─── */
+.app-shell--rtl {
+  direction: rtl;
+}
+
+/* The DOM keeps Sidebar first for the polished English shell. Arabic gives both
+   siblings an explicit visual order so the main surface is left/centre and the
+   navigation rail is right, independent of browser bidi flex heuristics. */
+.app-shell--rtl .app-body--rtl {
+  flex-direction: row;
+  direction: rtl;
+}
+
+.app-shell--rtl .app-body--rtl > .main-content--rtl {
+  order: 1;
+  direction: rtl;
+  text-align: right;
+}
+
+.app-shell--rtl .app-body--rtl > .sidebar {
+  order: 2;
+  direction: rtl;
+  text-align: right;
+  border-right: 0;
+  border-left: 1px solid var(--border);
+}
+
+.app-shell--rtl .sidebar-logo,
+.app-shell--rtl .sidebar-nav,
+.app-shell--rtl .sidebar-active-game,
+.app-shell--rtl .sidebar-credit,
+.app-shell--rtl .sidebar-footer,
+.app-shell--rtl .steam-status-card,
+.app-shell--rtl .active-game-card {
+  text-align: right;
+}
+
+.app-shell--rtl .nav-link {
+  justify-content: flex-start;
+  text-align: right;
+}
+
+.app-shell--rtl .nav-link-active::before {
+  inset-inline-start: auto;
+  inset-inline-end: 0;
+  left: auto;
+  right: 0;
+  border-radius: 3px 0 0 3px;
+}
+
+.app-shell--rtl .titlebar {
+  direction: rtl;
+}
+
+.app-shell--rtl .titlebar-left {
+  margin-left: auto;
+  margin-right: 0;
+}
+
+.app-shell--rtl .window-controls {
+  direction: ltr;
+  margin-left: 0;
+  margin-right: auto;
+}
+
+/* Values authored outside the Arabic product UI remain legible and unambiguous. */
+.app-shell--rtl .appid,
+.app-shell--rtl .active-game-appid,
+.app-shell--rtl .api-key-input,
+.app-shell--rtl .inline-code,
+.app-shell--rtl code,
+.app-shell--rtl a[href],
+.app-shell--rtl .achievement-id,
+.app-shell--rtl .steam-id,
+.app-shell--rtl .technical-value {
+  direction: ltr;
+  unicode-bidi: plaintext;
+  text-align: left;
+}
+
+.app-shell--rtl .directional-chevron {
+  transform: scaleX(-1);
+}
+
+@media (max-width: 760px) {
+  .app-shell--rtl .app-body--rtl {
+    flex-direction: column;
+  }
+  .app-shell--rtl .app-body--rtl > .sidebar,
+  .app-shell--rtl .app-body--rtl > .main-content--rtl {
+    order: initial;
+  }
+}
