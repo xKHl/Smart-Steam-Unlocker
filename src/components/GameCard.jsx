@@ -13,7 +13,10 @@ function formatPlaytime(minutes) {
  * • Displays the Steam CDN header image (460×215) with shimmer loading
  * • Falls back to a generic icon if the CDN image is missing
  * • Hover overlay shows "Browse Achievements" CTA
- * • Shows playtime badge and currently-selected indicator
+ * • Shows playtime badge and explicitly selected-game indicator
+ *
+ * Uses a native <button> element to guarantee reliable click handling in
+ * Electron's Chromium renderer across all window and focus states.
  */
 export default function GameCard({ game, onClick, isSelected }) {
   const [imgLoaded, setImgLoaded] = useState(false);
@@ -22,12 +25,10 @@ export default function GameCard({ game, onClick, isSelected }) {
   const playtime = formatPlaytime(game.playtimeMinutes);
 
   return (
-    <div
+    <button
+      type="button"
       className={`game-card${isSelected ? ' game-card-selected' : ''}`}
       onClick={onClick}
-      onKeyDown={(e) => e.key === 'Enter' && onClick()}
-      role="button"
-      tabIndex={0}
       id={`game-card-${game.appId}`}
       aria-label={`Browse achievements for ${game.name}`}
       aria-pressed={isSelected}
@@ -70,10 +71,10 @@ export default function GameCard({ game, onClick, isSelected }) {
           </div>
         )}
 
-        {/* Selected "Active" badge — top-right */}
+        {/* Selected-game badge — top-right */}
         {isSelected && (
-          <div className="game-card-selected-badge" aria-label="Currently selected">
-            Active
+          <div className="game-card-selected-badge" aria-label="Selected game">
+            Selected
           </div>
         )}
       </div>
@@ -83,6 +84,6 @@ export default function GameCard({ game, onClick, isSelected }) {
         <p className="game-card-name" title={game.name}>{game.name}</p>
         <p className="game-card-appid">AppID {game.appId}</p>
       </div>
-    </div>
+    </button>
   );
 }

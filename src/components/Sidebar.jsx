@@ -1,15 +1,23 @@
 import React from 'react';
 import { NavLink } from 'react-router-dom';
-import { LayoutDashboard, Library, Trophy, Settings, Zap } from 'lucide-react';
+import { Activity, CreditCard, Github, Globe2, LayoutDashboard, Library, Trophy, Settings, Zap } from 'lucide-react';
+import { useI18n } from '../i18n';
 
 const NAV_LINKS = [
-  { to: '/',             icon: LayoutDashboard, label: 'Dashboard',    id: 'nav-dashboard',    end: true  },
-  { to: '/library',      icon: Library,         label: 'Library',      id: 'nav-library',      end: false },
-  { to: '/achievements', icon: Trophy,          label: 'Achievements', id: 'nav-achievements', end: false },
-  { to: '/settings',     icon: Settings,        label: 'Settings',     id: 'nav-settings',     end: false },
+  { to: '/',             icon: LayoutDashboard, labelKey: 'nav.dashboard',    id: 'nav-dashboard',    end: true  },
+  { to: '/library',      icon: Library,         labelKey: 'nav.library',      id: 'nav-library',      end: false },
+  { to: '/achievements', icon: Trophy,          labelKey: 'nav.achievements', id: 'nav-achievements', end: false },
+  { to: '/trading-cards', icon: CreditCard,      labelKey: 'nav.tradingCards', id: 'nav-trading-cards', end: false },
+  { to: '/integrity',    icon: Activity,        labelKey: 'nav.integrity',    id: 'nav-integrity',     end: false },
+  { to: '/settings',     icon: Settings,        labelKey: 'nav.settings',     id: 'nav-settings',     end: false },
 ];
 
-export default function Sidebar({ steamStatus, selectedGame }) {
+export default function Sidebar({ steamStatus, selectedGame, version }) {
+  const { t } = useI18n();
+  const openExternal = (url) => {
+    window.steamAPI?.app?.openExternal(url).catch(() => {});
+  };
+
   return (
     <aside className="sidebar">
 
@@ -19,58 +27,75 @@ export default function Sidebar({ steamStatus, selectedGame }) {
           <Zap size={18} color="#fff" />
         </div>
         <div>
-          <p className="logo-title">Smart Unlocker</p>
-          <p className="logo-subtitle">v0.1.0 · Alpha</p>
+          <p className="logo-title">Smart Steam Unlocker</p>
+          <p className="logo-subtitle">v{version || '…'}</p>
         </div>
       </div>
 
-      {/* ── Navigation ───────────────────────────────────────────────────── */}
-      <nav className="sidebar-nav" aria-label="Main navigation">
-        <p className="nav-section-label">Navigation</p>
-        {NAV_LINKS.map(({ to, icon: Icon, label, id, end }) => (
-          <NavLink
-            key={id}
-            to={to}
-            end={end}
-            id={id}
-            className={({ isActive }) => `nav-link${isActive ? ' nav-link-active' : ''}`}
-          >
-            <Icon size={16} aria-hidden="true" />
-            <span>{label}</span>
-          </NavLink>
-        ))}
-      </nav>
+      <div className="sidebar-navigation-region">
+        {/* ── Navigation ───────────────────────────────────────────────────── */}
+        <nav className="sidebar-nav" aria-label={t('nav.navigation')}>
+          <p className="nav-section-label">{t('nav.navigation')}</p>
+          {NAV_LINKS.map(({ to, icon: Icon, labelKey, id, end }) => (
+            <NavLink
+              key={id}
+              to={to}
+              end={end}
+              id={id}
+              className={({ isActive }) => `nav-link${isActive ? ' nav-link-active' : ''}`}
+            >
+              <Icon size={16} aria-hidden="true" />
+              <span>{t(labelKey)}</span>
+            </NavLink>
+          ))}
+        </nav>
 
-      {/* ── Active Game ───────────────────────────────────────────────────── */}
-      {selectedGame && (
-        <div className="sidebar-active-game">
-          <p className="nav-section-label" style={{ paddingBottom: 8 }}>Active Game</p>
-          <div className="active-game-card">
-            <img
-              src={selectedGame.headerImage}
-              alt={selectedGame.name}
-              className="active-game-image"
-              onError={(e) => (e.target.style.display = 'none')}
-            />
-            <p className="active-game-name" title={selectedGame.name}>{selectedGame.name}</p>
-            <p className="active-game-appid">AppID {selectedGame.appId}</p>
+        {/* ── Selected Game ───────────────────────────────────────────────── */}
+        {selectedGame && (
+          <div className="sidebar-active-game">
+            <p className="nav-section-label" style={{ paddingBottom: 8 }}>{t('nav.selectedGame')}</p>
+            <div className="active-game-card">
+              <img
+                src={selectedGame.headerImage}
+                alt={selectedGame.name}
+                className="active-game-image"
+                onError={(e) => (e.target.style.display = 'none')}
+              />
+              <p className="active-game-name" title={selectedGame.name}>{selectedGame.name}</p>
+              <p className="active-game-appid">AppID {selectedGame.appId}</p>
+            </div>
+          </div>
+        )}
+      </div>
+
+      <div className="sidebar-spacer" aria-hidden="true" />
+
+      <div className="sidebar-credit" aria-label="Project ownership and author links">
+        <div className="sidebar-credit-heading">
+          <span className="sidebar-credit-monogram" aria-hidden="true">KA</span>
+          <div>
+            <p className="sidebar-credit-name">Khalid Alotaibi</p>
+            <p className="sidebar-credit-role">Creator · Smart Steam Unlocker</p>
           </div>
         </div>
-      )}
-
-      <div style={{ flex: 1 }} />
+        <div className="sidebar-credit-links">
+          <button type="button" onClick={() => openExternal('https://github.com/xKHl')} aria-label="Open Khalid Alotaibi's GitHub profile in your browser"><Github size={12} /> GitHub</button>
+          <button type="button" onClick={() => openExternal('https://alotaibi.dev')} aria-label="Open Khalid Alotaibi website in your browser"><Globe2 size={12} /> Website</button>
+        </div>
+        <p className="sidebar-credit-copyright">© 2026 Khalid Alotaibi</p>
+      </div>
 
       {/* ── Steam Status Footer ───────────────────────────────────────────── */}
       <div className="sidebar-footer">
         <div
           className={`steam-status-card ${steamStatus.connected ? 'connected' : 'disconnected'}`}
           role="status"
-          aria-label={steamStatus.connected ? 'Steam connected' : 'Steam disconnected'}
+          aria-label={steamStatus.connected ? t('status.connected') : t('status.disconnected')}
         >
           <div className="steam-status-dot" />
           <div style={{ minWidth: 0 }}>
             <p className="steam-status-label">
-              {steamStatus.connected ? 'Steam Connected' : 'Steam Offline'}
+              {steamStatus.connected ? t('status.connected') : t('status.disconnected')}
             </p>
             {steamStatus.playerName && (
               <p className="steam-username" title={steamStatus.playerName}>

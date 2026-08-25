@@ -6,21 +6,61 @@
  * All persistence lives in settingsStore.js.
  */
 
-const { ipcMain, BrowserWindow, app } = require('electron');
+const { ipcMain, BrowserWindow, app, shell } = require('electron');
 const steamManager  = require('../steamManager');
 const settingsStore = require('../settingsStore');
+const credentialStore = require('../credentialStore');
+const humanizedService = require('../humanizedService');
+const tradingCardsService = require('../tradingCardsService');
+const { orderAchievements, orderingMetadata } = require('../humanized/ordering');
+const {
+  assertAppId,
+  sanitizeHumanizedPayload,
+  sanitizeOrderingPayload,
+  sanitizeOwnedGamesOptions,
+  sanitizeSwitchGamePayload,
+  sanitizeTimerPayload,
+  sanitizeUnlockPayload,
+  sanitizeRelockPayload,
+} = require('./validation');
+const runtimeDiagnostics = require('../runtimeDiagnostics');
+const { traceHandler } = runtimeDiagnostics;
 
 // In-memory cache for the owned-games response (valid 5 minutes)
 let _libraryCache     = null;
 let _libraryCacheTime = 0;
 const CACHE_TTL_MS    = 5 * 60 * 1000;
+const TRUSTED_EXTERNAL_URLS = new Set([
+  'https://github.com/xKHl',
+  'https://github.com/xKHl/Smart-Steam-Unlocker',
+  'https://alotaibi.dev',
+]);
 
 function invalidateLibraryCache() {
   _libraryCache     = null;
   _libraryCacheTime = 0;
 }
 
+function assertGameSwitchAllowed(appId) {
+  const schedule = humanizedService.getStatus()?.schedule;
+  // Only block game switching when the scheduler is actively executing items
+  // (state === 'running'). A paused, completed, or failed schedule — including
+  // schedules restored from persistence at startup, which recoverSchedule always
+  // downgrades from 'running' to 'paused' — must not prevent normal Library
+  // navigation. The user can resume or clear a paused schedule at any time.
+  const isActivelyRunning = schedule?.state === 'running';
+  if (isActivelyRunning && Number(schedule.appId) !== Number(appId)) {
+    const error = new Error('Stop the active Humanized schedule before selecting another game.');
+    error.code = 'ACTIVE_SCHEDULE_APP_ID_CONFLICT';
+    throw error;
+  }
+}
+
 // ─────────────────────────────────────────────────────────────────────────────
+
+function registerHandler(channel, handler) {
+  ipcMain.handle(channel, traceHandler(channel, handler));
+}
 
 function registerIpcHandlers() {
 
@@ -32,7 +72,7 @@ function registerIpcHandlers() {
   });
   ipcMain.on('window:close',    () => BrowserWindow.getFocusedWindow()?.close());
 
-  ipcMain.handle('window:is-maximized', () =>
+  registerHandler('window:is-maximized', () =>
     BrowserWindow.getFocusedWindow()?.isMaximized() ?? false
   );
 
@@ -42,10 +82,10 @@ function registerIpcHandlers() {
   });
 
   // ─── Steam: Status ────────────────────────────────────────────────────────
-  ipcMain.handle('steam:get-status', () => steamManager.getStatus());
+  registerHandler('steam:get-status', () => steamManager.getStatus());
 
   // ─── Steam: Manual Reconnect ──────────────────────────────────────────────
-  ipcMain.handle('steam:reconnect', async () => {
+  registerHandler('steam:reconnect', async () => {
     // console.log('[IPC] steam:reconnect → User triggered manual reconnect');
     const success = await steamManager.initSteam();
     const status = steamManager.getStatus();
@@ -63,13 +103,19 @@ function registerIpcHandlers() {
    *   'INVALID_API_KEY'     — 401/403 from Steam
    *   'PRIVATE_PROFILE'     — profile privacy settings block the request
    */
-  ipcMain.handle('steam:get-owned-games', async (_e, { forceRefresh } = {}) => {
+  registerHandler('steam:get-owned-games', async (_e, options) => {
+    const { forceRefresh } = sanitizeOwnedGamesOptions(options);
     // Serve from cache unless stale or forced
     if (!forceRefresh && _libraryCache && Date.now() - _libraryCacheTime < CACHE_TTL_MS) {
       return { ..._libraryCache, fromCache: true };
     }
 
-    const apiKey = settingsStore.get('steamApiKey');
+    let apiKey;
+    try {
+      apiKey = credentialStore.getApiKey();
+    } catch (error) {
+      return { success: false, errorCode: error?.code === 'CREDENTIAL_MIGRATION_REQUIRED' ? 'CREDENTIAL_MIGRATION_REQUIRED' : 'NO_API_KEY', games: [], count: 0 };
+    }
     if (!apiKey) return { success: false, errorCode: 'NO_API_KEY', games: [], count: 0 };
 
     let status = steamManager.getStatus();
@@ -101,17 +147,25 @@ function registerIpcHandlers() {
 
 
   // ─── Steam: Switch Game ───────────────────────────────────────────────────
-  ipcMain.handle('steam:switch-game', async (_event, { appId, name, headerImage }) => {
+  registerHandler('steam:switch-game', async (_event, payload) => {
+    const { appId, name, headerImage } = sanitizeSwitchGamePayload(payload);
+    assertGameSwitchAllowed(appId);
     // console.log(`[IPC] steam:switch-game → AppID: ${appId} (${name})`);
     settingsStore.set('selectedGame', { appId, name, headerImage });
-    
+
     const success = await steamManager.switchGame(appId);
     return { relaunching: false, success };
   });
 
   // ─── Steam: Achievements ──────────────────────────────────────────────────
-  ipcMain.handle('steam:get-achievements', async (_e, appId) => {
-    const apiKey = settingsStore.get('steamApiKey');
+  registerHandler('steam:get-achievements', async (_e, rawAppId) => {
+    const appId = assertAppId(rawAppId);
+    let apiKey;
+    try {
+      apiKey = credentialStore.getApiKey();
+    } catch (error) {
+      return { success: false, achievements: [], errorCode: error?.code || 'NO_API_KEY', error: 'Steam Web API credential is unavailable.' };
+    }
     let status = steamManager.getStatus();
     
     if (!status.steamId) {
@@ -121,32 +175,158 @@ function registerIpcHandlers() {
     
     return await steamManager.getAchievements(appId, apiKey, status.steamId);
   });
-  ipcMain.handle('steam:get-global-achievement-percentages', (_e, appId) => steamManager.getGlobalAchievementPercentages(appId));
-  ipcMain.handle('steam:unlock-achievement', (_e, { appId, achievementId }) => steamManager.unlockAchievement(achievementId));
+  // Integrity scans must be based solely on the latest remote Steam read: no
+  // local optimistic unlock cache is merged into timestamps or score evidence.
+  registerHandler('steam:get-achievement-integrity-data', async (_e, rawAppId) => {
+    const appId = assertAppId(rawAppId);
+    let apiKey;
+    try {
+      apiKey = credentialStore.getApiKey();
+    } catch (error) {
+      return { success: false, achievements: [], errorCode: error?.code || 'NO_API_KEY', error: 'Steam Web API credential is unavailable.' };
+    }
+    let status = steamManager.getStatus();
+    if (!status.steamId) {
+      await steamManager.initSteam();
+      status = steamManager.getStatus();
+    }
+    return steamManager.getAchievements(appId, apiKey, status.steamId, { includeOptimisticCache: false });
+  });
+  registerHandler('steam:get-global-achievement-percentages', (_e, rawAppId) => steamManager.getGlobalAchievementPercentages(assertAppId(rawAppId)));
+  registerHandler('steam:unlock-achievement', (_e, payload) => {
+    const { appId, achievementId } = sanitizeUnlockPayload(payload);
+    return steamManager.unlockAchievement(achievementId, appId);
+  });
 
-  // ─── Timer ────────────────────────────────────────────────────────────────
+  registerHandler('steam:relock-achievement', (_e, payload) => {
+    const { appId, achievementId } = sanitizeRelockPayload(payload);
+    const schedule = humanizedService.getStatus()?.schedule;
+    if (schedule?.state === 'running') {
+      return {
+        success: false,
+        appId,
+        achievementId,
+        error: 'Pause the active Humanized schedule before relocking achievements.',
+        errorCode: 'HUMANIZED_SCHEDULE_RUNNING',
+      };
+    }
+    return steamManager.relockAchievement(achievementId, appId);
+  });
+
+  // ─── Trading Cards (separate Steam launch monitor) ────────────────────────
+  registerHandler('trading-cards:get-library', async (_e, options) => {
+    const { forceRefresh } = sanitizeOwnedGamesOptions(options);
+    return tradingCardsService.getLibrary({ forceRefresh });
+  });
+  registerHandler('trading-cards:get-status', () => tradingCardsService.getStatus());
+  registerHandler('trading-cards:start', async (_e, rawAppId) => {
+    const appId = assertAppId(rawAppId);
+    return tradingCardsService.start({
+      appId,
+      // Only a validated positive integer can reach the constructed Steam URI.
+      // The Steam client receives a launch request; the monitor never treats
+      // this request as proof that an arbitrary game is actually running.
+      launchGame: () => shell.openExternal(`steam://run/${appId}`),
+    });
+  });
+  registerHandler('trading-cards:pause', () => tradingCardsService.pause());
+  registerHandler('trading-cards:resume', () => tradingCardsService.resume());
+  registerHandler('trading-cards:stop', () => tradingCardsService.stop());
+
+  // ─── Legacy Timer (existing instant behavior) ─────────────────────────────
   const timerService = require('../timerService');
-  ipcMain.handle('timer:start-queue', (_e, { achievements, base, variance, fixedMins }) => timerService.startQueue(achievements, base, variance, fixedMins));
-  ipcMain.handle('timer:stop-queue',  () => timerService.stopQueue());
-  ipcMain.handle('timer:clear-queue', () => timerService.clearQueue());
-  ipcMain.handle('timer:get-status',  () => timerService.getStatus());
+  registerHandler('timer:start-queue', (_e, payload) => {
+    const { achievements, base, variance, fixedMins } = sanitizeTimerPayload(payload);
+    return timerService.startQueue(achievements, base, variance, fixedMins);
+  });
+  registerHandler('timer:stop-queue',  () => timerService.stopQueue());
+  registerHandler('timer:recheck-verification', () => timerService.recheckVerificationNow());
+  registerHandler('timer:clear-queue', () => timerService.clearQueue());
+  registerHandler('timer:get-status',  () => timerService.getStatus());
 
-  // ─── Settings ─────────────────────────────────────────────────────────────
-  ipcMain.handle('settings:get', (_e, key) => settingsStore.get(key));
+  // ─── Humanized Scheduler ─────────────────────────────────────────────────
+  registerHandler('humanized:get-status', () => humanizedService.getStatus());
+  // Renderer display ordering deliberately delegates to the same canonical
+  // normalization and ordering implementation used by schedule generation.
+  registerHandler('humanized:order-achievements', (_e, payload) => {
+    try {
+      const { achievements, orderMode, appId } = sanitizeOrderingPayload(payload);
+      const context = { appId };
+      const metadata = orderingMetadata(achievements, orderMode, context);
+      const ordered = orderAchievements(achievements, orderMode, context);
+      runtimeDiagnostics.trace('humanized-ordering', 'result', {
+        appId,
+        orderMode,
+        achievementCount: achievements.length,
+        knownPercentCount: metadata.knownPercentCount,
+        progressionEvidenceCount: metadata.progressionEvidenceCount,
+        capability: metadata.capability,
+        reasonCode: metadata.reasonCode,
+        orderedIdCount: ordered.length,
+      });
+      return { ordered, metadata };
+    } catch (error) {
+      runtimeDiagnostics.trace('humanized-ordering', 'failure', {
+        appId: Number.isInteger(payload?.appId) ? payload.appId : null,
+        orderMode: typeof payload?.orderMode === 'string' ? payload.orderMode.slice(0, 64) : null,
+        achievementCount: Array.isArray(payload?.achievements) ? payload.achievements.length : null,
+        errorCode: error?.code || 'ORDERING_EXCEPTION',
+        reason: error instanceof Error ? error.message : String(error),
+      });
+      throw error;
+    }
+  });
+  registerHandler('humanized:create', (_e, payload) => humanizedService.create(sanitizeHumanizedPayload(payload)));
+  registerHandler('humanized:replace', (_e, payload) => humanizedService.replace(sanitizeHumanizedPayload(payload)));
+  registerHandler('humanized:start', () => humanizedService.start());
+  registerHandler('humanized:pause', () => humanizedService.pause());
+  registerHandler('humanized:recheck-now', () => humanizedService.recheckNow());
+  registerHandler('humanized:clear', () => humanizedService.clear());
 
-  ipcMain.handle('settings:set', (_e, key, value) => {
-    settingsStore.set(key, value);
-    // Bust the library cache whenever the API key changes
-    if (key === 'steamApiKey') invalidateLibraryCache();
+  // ─── Credential settings (status only; plaintext never crosses IPC) ───────
+  registerHandler('credentials:get-status', () => credentialStore.getStatus());
+  registerHandler('credentials:save-steam-api-key', (_e, value) => {
+    const status = credentialStore.saveApiKey(value);
+    invalidateLibraryCache();
+    return status;
+  });
+  registerHandler('credentials:clear-steam-api-key', () => {
+    const status = credentialStore.clearApiKey();
+    invalidateLibraryCache();
+    return status;
   });
 
-  ipcMain.handle('settings:delete', (_e, key) => {
-    settingsStore.delete(key);
-    if (key === 'steamApiKey') invalidateLibraryCache();
+  // ─── App Info and local preferences ──────────────────────────────────────
+  registerHandler('app:get-version', () => app.getVersion());
+  registerHandler('app:get-locale', () => {
+    const locale = settingsStore.get('locale');
+    return locale === 'ar' ? 'ar' : 'en';
   });
-
-  // ─── App Info ─────────────────────────────────────────────────────────────
-  ipcMain.handle('app:get-version', () => app.getVersion());
+  registerHandler('app:set-locale', (_event, value) => {
+    if (value !== 'en' && value !== 'ar') throw new Error('Locale is not supported.');
+    settingsStore.set('locale', value);
+    return value;
+  });
+  // A persisted game may be required by background schedule/Steam safety checks,
+  // but active renderer selection is always an explicit per-session user choice.
+  registerHandler('app:get-initial-state', () => ({ selectedGame: null }));
+  registerHandler('app:get-diagnostics-status', () => runtimeDiagnostics.getStatus());
+  registerHandler('app:trace-interaction', (_event, payload = {}) => {
+    runtimeDiagnostics.trace('renderer', 'interaction', {
+      eventType: typeof payload.eventType === 'string' ? payload.eventType.slice(0, 32) : 'unknown',
+      route: typeof payload.route === 'string' ? payload.route.slice(0, 240) : null,
+      targetId: typeof payload.targetId === 'string' ? payload.targetId.slice(0, 120) : null,
+      targetTag: typeof payload.targetTag === 'string' ? payload.targetTag.slice(0, 24) : null,
+      targetClass: typeof payload.targetClass === 'string' ? payload.targetClass.slice(0, 160) : null,
+      trusted: payload.trusted === true,
+    });
+    return true;
+  });
+  registerHandler('app:open-external', async (_e, url) => {
+    if (!TRUSTED_EXTERNAL_URLS.has(url)) throw new Error('This external link is not permitted.');
+    await shell.openExternal(url);
+    return true;
+  });
 
   // console.log('[IPC] ✓ All handlers registered.');
 }

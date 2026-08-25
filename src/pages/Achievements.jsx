@@ -1,8 +1,29 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import { Search, Filter, ChevronRight, RotateCcw, Clock, Play, Square, Settings2, Trash2, Trophy, Loader2 } from 'lucide-react';
 import AchievementCard from '../components/AchievementCard';
+import HumanizedSchedulePanel from '../components/HumanizedSchedulePanel';
+import { achievementOrderRevision, projectAchievementDisplay } from '../lib/achievementDisplayProjection.mjs';
+import {
+  addVisibleLockedSelection,
+  areAllVisibleLockedSelected,
+  removeVisibleLockedSelection,
+  visibleLockedAchievementIds,
+} from '../lib/achievementBulkSelection.mjs';
+import { projectExecutionAchievements } from '../lib/executionAchievementPayload.mjs';
+import { useI18n } from '../i18n';
 
-const FILTERS = ['All', 'Locked', 'Unlocked'];
+const FILTERS = [
+  { value: 'All', key: 'achievements.filters.all' },
+  { value: 'Locked', key: 'achievements.filters.locked' },
+  { value: 'Unlocked', key: 'achievements.filters.unlocked' },
+];
+
+const HUMANIZED_ORDER_LABELS = {
+  original: 'mode.original',
+  'natural-story-progression': 'mode.naturalStory',
+  'most-common-to-rarest': 'mode.commonToRare',
+  'rarest-to-most-common': 'mode.rareToCommon',
+};
 
 function formatTime(seconds) {
   if (!seconds) return '00:00';
@@ -15,6 +36,7 @@ function formatTime(seconds) {
  * Achievements — Achievement browser page with Smart Delay Timer
  */
 export default function Achievements({ selectedGame, onChangeGame }) {
+  const { t } = useI18n();
   // ── UI State ────────────────────────────────────────────────────────────
   const [search, setSearch] = useState('');
   const [filter, setFilter] = useState('All');
@@ -23,121 +45,196 @@ export default function Achievements({ selectedGame, onChangeGame }) {
   const [achievements, setAchievements] = useState([]);
   const [selectedIds, setSelectedIds] = useState(new Set());
   const [isLoading, setIsLoading] = useState(false);
+  const [loadError, setLoadError] = useState('');
   
   // ── Timer State ─────────────────────────────────────────────────────────
   const [timerStatus, setTimerStatus] = useState({
-    isActive: false, queue: [], currentCountdown: 0, 
-    baseMultiplier: 1, varianceMins: 15, totalInQueue: 0, unlockedCount: 0
+    isActive: false, queue: [], currentCountdown: 0,
+    baseMultiplier: 1, varianceMins: 15, totalInQueue: 0, unlockedCount: 0, lastOutcome: null,
   });
+  const [instantError, setInstantError] = useState('');
   
   const [baseMultiplier, setBaseMultiplier] = useState(1);
   const [varianceMins, setVarianceMins] = useState(15);
   const [useFixedTime, setUseFixedTime] = useState(false);
   const [fixedMins, setFixedMins] = useState(1);
+  const [unlockMode, setUnlockMode] = useState('instant');
+  const [humanizedOrderMode, setHumanizedOrderMode] = useState('natural-story-progression');
+  const [humanizedOrderCache, setHumanizedOrderCache] = useState({ revision: '', byMode: {}, metadataByMode: {} });
+  const [humanizedOrderError, setHumanizedOrderError] = useState('');
+  const [relockDialogAchievement, setRelockDialogAchievement] = useState(null);
+  const [relockStates, setRelockStates] = useState({});
+  const [relockMessage, setRelockMessage] = useState(null);
 
   // ── Initialization ──────────────────────────────────────────────────────
   useEffect(() => {
-    if (!selectedGame) return;
+    if (!selectedGame) return undefined;
+    let active = true;
+    const appId = selectedGame.appId;
 
-    // Fetch actual achievements and global percentages from Steam
+    // Each selected-game revision owns its responses. A slower request for the
+    // previous game is ignored instead of overwriting the current achievement grid.
     const fetchAchievements = async () => {
       if (!window.steamAPI) return;
-      setIsLoading(true);
+      if (active) {
+        setIsLoading(true);
+        setLoadError('');
+      }
       try {
         const [achRes, pctRes] = await Promise.all([
-          window.steamAPI.steam.getAchievements(selectedGame.appId),
-          window.steamAPI.steam.getGlobalAchievementPercentages(selectedGame.appId)
+          window.steamAPI.steam.getAchievements(appId),
+          window.steamAPI.steam.getGlobalAchievementPercentages(appId),
         ]);
+        if (!active) return;
 
         if (achRes?.success) {
-          let merged = achRes.achievements;
-          
-          if (pctRes?.success && pctRes.percentages) {
-            const pctMap = {};
-            pctRes.percentages.forEach(p => { pctMap[p.name] = p.percent; });
-            
-            merged = merged.map(a => ({
-              ...a,
-              globalPercent: pctMap[a.id] !== undefined ? pctMap[a.id] : 0
-            }));
-          }
-
-          // Auto-Sort logic: Strictly chronological using the internal schema index
-          merged.sort((a, b) => {
-             const indexA = a.originalIndex ?? 0;
-             const indexB = b.originalIndex ?? 0;
-             return indexA - indexB;
-          });
-
+          const pctMap = Object.fromEntries((pctRes?.success && Array.isArray(pctRes.percentages) ? pctRes.percentages : [])
+            .map((percentage) => [percentage.name, percentage.percent]));
+          const merged = achRes.achievements
+            .map((achievement) => (pctMap[achievement.id] !== undefined ? { ...achievement, globalPercent: pctMap[achievement.id] } : achievement))
+            .sort((left, right) => (left.originalIndex ?? 0) - (right.originalIndex ?? 0));
           setAchievements(merged);
+        } else {
+          setAchievements([]);
+          setLoadError(achRes?.error || 'Steam could not return achievement data for this game.');
         }
-      } catch (err) {
-        console.error(err);
+      } catch {
+        if (active) {
+          setAchievements([]);
+          setLoadError('Could not load achievements. Check the Steam connection and try again.');
+        }
       } finally {
-        setIsLoading(false);
+        if (active) setIsLoading(false);
       }
     };
-    
+
     fetchAchievements();
-
-    // Fetch persisted timer status
-    window.steamAPI?.timer.getStatus().then(status => {
-      if (status) {
-        setTimerStatus(status);
-        if (status.baseMultiplier > 0) setBaseMultiplier(status.baseMultiplier);
-        if (status.varianceMins > 0) setVarianceMins(status.varianceMins);
-        if (status.fixedMins !== null && status.fixedMins !== undefined) {
-          setUseFixedTime(true);
-          setFixedMins(status.fixedMins);
-        }
+    window.steamAPI?.timer.getStatus().then((timer) => {
+      if (!active || !timer) return;
+      setTimerStatus(timer);
+      if (timer.baseMultiplier > 0) setBaseMultiplier(timer.baseMultiplier);
+      if (timer.varianceMins > 0) setVarianceMins(timer.varianceMins);
+      if (timer.fixedMins !== null && timer.fixedMins !== undefined) {
+        setUseFixedTime(true);
+        setFixedMins(timer.fixedMins);
       }
-    });
+    }).catch(() => {});
 
-    // Subscribe to live timer ticks
-    window.steamAPI?.timer.onUpdate((status) => {
-      setTimerStatus(status);
-      
-      // If the timer stopped and queue finished, refresh achievements to reflect unlocked state
-      if (!status.isActive && status.queue.length === 0 && status.unlockedCount > 0) {
-        fetchAchievements();
-      }
+    const stopTimerSubscription = window.steamAPI?.timer.onUpdate((timer) => {
+      if (!active) return;
+      setTimerStatus(timer);
+      if (!timer.isActive && timer.queue.length === 0 && timer.unlockedCount > 0) fetchAchievements();
     });
-
-    // Subscribe to real-time unlock events
-    window.steamAPI?.steam.onAchievementUnlocked((achievementId) => {
-      console.log('Real-time unlock received:', achievementId);
-      
-      // Instantly update the achievement array to reflect unlocked state & icon
-      setAchievements(prev => prev.map(ach => 
-        ach.id === achievementId 
-          ? { ...ach, unlocked: true, iconUrl: ach.iconColorUrl || ach.iconUrl }
-          : ach
-      ));
-      
-      // Ensure it is removed from the manual selection set if it was selected
-      setSelectedIds(prev => {
-        const next = new Set(prev);
-        if (next.has(achievementId)) {
-          next.delete(achievementId);
-        }
+    const stopUnlockSubscription = window.steamAPI?.steam.onAchievementUnlocked((achievementId) => {
+      if (!active) return;
+      setAchievements((previous) => previous.map((achievement) => (
+        achievement.id === achievementId ? { ...achievement, unlocked: true, iconUrl: achievement.iconColorUrl || achievement.iconUrl } : achievement
+      )));
+      setSelectedIds((previous) => {
+        const next = new Set(previous);
+        next.delete(achievementId);
         return next;
       });
     });
+    const stopRelockSubscription = window.steamAPI?.steam.onAchievementRelocked((achievementId) => {
+      if (!active) return;
+      setAchievements((previous) => previous.map((achievement) => (
+        achievement.id === achievementId ? { ...achievement, unlocked: false, unlockTime: null, iconUrl: achievement.iconGrayUrl || achievement.iconUrl } : achievement
+      )));
+      setRelockStates((previous) => ({ ...previous, [achievementId]: 'verified' }));
+    });
 
     setSelectedIds(new Set());
-  }, [selectedGame]);
+    return () => {
+      active = false;
+      stopTimerSubscription?.();
+      stopUnlockSubscription?.();
+      stopRelockSubscription?.();
+    };
+  }, [selectedGame?.appId]);
 
   // ── Derived State ───────────────────────────────────────────────────────
-  const displayedAchievements = useMemo(() => {
-    let list = achievements;
-    const q = search.trim().toLowerCase();
-    if (q) list = list.filter(a => (a.name || a.id).toLowerCase().includes(q));
-    
-    if (filter === 'Locked')   list = list.filter(a => !a.unlocked);
-    if (filter === 'Unlocked') list = list.filter(a => a.unlocked);
-    
-    return list;
-  }, [achievements, search, filter]);
+  // The main process remains the sole ordering authority. Fetch every canonical
+  // mode for the current achievement revision once, then derive the visible grid
+  // from the selected mode synchronously alongside the existing filters. A mode
+  // click therefore updates the rendered cards immediately from this cache and
+  // never reads or changes a persisted Humanized schedule.
+  const orderRevision = useMemo(() => achievementOrderRevision(achievements), [achievements]);
+
+  useEffect(() => {
+    let cancelled = false;
+    const orderAchievements = window.steamAPI?.humanized?.orderAchievements;
+    if (!orderAchievements || !achievements.length) {
+      setHumanizedOrderCache({ revision: orderRevision, byMode: {}, metadataByMode: {} });
+      return () => { cancelled = true; };
+    }
+
+    const modes = ['original', 'natural-story-progression', 'most-common-to-rarest', 'rarest-to-most-common'];
+    // Achievement view models also carry read-only evidence such as unlockTime.
+    // The strict ordering IPC accepts the canonical ordering contract only; do
+    // not let one UI-only field reject every mode and silently leave the grid in
+    // its Steam-source fallback order.
+    const canonicalOrderingInput = projectExecutionAchievements(achievements);
+    setHumanizedOrderError('');
+    Promise.all(modes.map(async (mode) => {
+      const result = await orderAchievements(canonicalOrderingInput, mode, selectedGame?.appId);
+      // The main process returns the sole canonical ordered data plus a
+      // mode-specific capability explanation. Preserve legacy array handling
+      // only for development compatibility; no renderer sort is performed.
+      const ordered = Array.isArray(result) ? result : result?.ordered;
+      return {
+        mode,
+        ids: Array.isArray(ordered) ? ordered.map((achievement) => achievement.id) : [],
+        metadata: Array.isArray(result) ? null : (result?.metadata || null),
+      };
+    })).then((entries) => {
+      if (!cancelled) setHumanizedOrderCache({
+        revision: orderRevision,
+        byMode: Object.fromEntries(entries.map(({ mode, ids }) => [mode, ids])),
+        metadataByMode: Object.fromEntries(entries.map(({ mode, metadata }) => [mode, metadata])),
+      });
+    }).catch(() => {
+      // Do not label an original-order fallback as the selected Humanized mode.
+      // The renderer never creates a second sorting algorithm; it waits for the
+      // main-process canonical ordering bridge and surfaces the unavailable state.
+      if (!cancelled) {
+        setHumanizedOrderCache({ revision: orderRevision, byMode: {}, metadataByMode: {} });
+        setHumanizedOrderError(t('achievements.gridFallback'));
+      }
+    });
+
+    return () => { cancelled = true; };
+  }, [achievements, orderRevision, selectedGame?.appId, t]);
+
+  const canonicalOrderedIds = humanizedOrderCache.revision === orderRevision
+    ? humanizedOrderCache.byMode[humanizedOrderMode]
+    : null;
+  const selectedOrderingMetadata = humanizedOrderCache.revision === orderRevision
+    ? humanizedOrderCache.metadataByMode?.[humanizedOrderMode]
+    : null;
+
+  // One projection pipeline is shared by the grid, Humanized selection badges,
+  // bulk selection, and schedule input: canonical data → canonical order →
+  // search/filter visibility. Instant deliberately retains Steam source order.
+  const canonicalOrderedAchievements = useMemo(() => projectAchievementDisplay({
+    achievements,
+    orderedIds: canonicalOrderedIds,
+    useCanonicalOrder: unlockMode === 'humanized',
+  }), [achievements, canonicalOrderedIds, unlockMode]);
+
+  const displayedAchievements = useMemo(() => projectAchievementDisplay({
+    achievements: canonicalOrderedAchievements,
+    useCanonicalOrder: false,
+    search,
+    filter,
+  }), [canonicalOrderedAchievements, filter, search]);
+
+  const instantOutcome = timerStatus.lastOutcome;
+  const instantOutcomeTone = instantOutcome?.state === 'verified'
+    ? 'success'
+    : instantOutcome?.state === 'verification-pending'
+      ? 'warning'
+      : 'danger';
 
   // Set of IDs currently in the queue
   const queueIds = useMemo(() => new Set(timerStatus.queue.map(q => q.id)), [timerStatus.queue]);
@@ -150,15 +247,24 @@ export default function Achievements({ selectedGame, onChangeGame }) {
 
   const selectedIndexMap = useMemo(() => {
     const map = new Map();
-    let i = 1;
-    for (const id of selectedIds) {
-      map.set(id, i++);
-    }
+    const selectedOrder = unlockMode === 'humanized'
+      ? canonicalOrderedAchievements.map((achievement) => achievement.id).filter((id) => selectedIds.has(id))
+      : [...selectedIds];
+    selectedOrder.forEach((id, index) => map.set(id, index + 1));
     return map;
-  }, [selectedIds]);
+  }, [canonicalOrderedAchievements, selectedIds, unlockMode]);
 
-  const lockedAchievements = useMemo(() => achievements.filter(a => !a.unlocked), [achievements]);
-  const allLockedSelected = lockedAchievements.length > 0 && lockedAchievements.every(a => selectedIds.has(a.id));
+  // Bulk selection is deliberately derived from the rendered projection. In
+  // Humanized mode that projection already uses main-process canonical IDs;
+  // search and filter are applied before this list is created.
+  const visibleLockedIds = useMemo(
+    () => visibleLockedAchievementIds(displayedAchievements),
+    [displayedAchievements],
+  );
+  const allVisibleLockedSelected = useMemo(
+    () => areAllVisibleLockedSelected(selectedIds, visibleLockedIds),
+    [selectedIds, visibleLockedIds],
+  );
 
   // ── Actions ─────────────────────────────────────────────────────────────
   const handleToggleSelect = (id) => {
@@ -169,31 +275,100 @@ export default function Achievements({ selectedGame, onChangeGame }) {
   };
 
   const handleSelectAllLocked = () => {
-    if (allLockedSelected) {
-      setSelectedIds(new Set());
-    } else {
-      const next = new Set(selectedIds);
-      lockedAchievements.forEach(a => next.add(a.id));
-      setSelectedIds(next);
-    }
+    setSelectedIds((current) => (
+      allVisibleLockedSelected
+        ? removeVisibleLockedSelection(current, visibleLockedIds)
+        : addVisibleLockedSelection(current, visibleLockedIds)
+    ));
   };
 
-  const handleStartQueue = () => {
+  const handleStartQueue = async () => {
     if (selectedIds.size === 0 && timerStatus.queue.length === 0) return;
-    
-    if (selectedIds.size > 0) {
-      // Start a brand new queue with selected items
-      const selectedItems = achievements.filter(a => selectedIds.has(a.id));
-      window.steamAPI?.timer.startQueue(selectedItems, parseFloat(baseMultiplier), parseInt(varianceMins), useFixedTime ? parseFloat(fixedMins) : null);
-      setSelectedIds(new Set()); // clear selection
-    } else {
-      // Resume existing queue
-      window.steamAPI?.timer.startQueue([], parseFloat(baseMultiplier), parseInt(varianceMins), useFixedTime ? parseFloat(fixedMins) : null);
+    setInstantError('');
+
+    try {
+      if (selectedIds.size > 0) {
+        // The achievement view model can carry display-only Steam evidence such
+        // as unlockTime. Project it to the strict execution IPC contract.
+        const selectedItems = projectExecutionAchievements(
+          achievements.filter((achievement) => selectedIds.has(achievement.id)),
+        );
+        const nextStatus = await window.steamAPI?.timer.startQueue(
+          selectedItems,
+          parseFloat(baseMultiplier),
+          parseInt(varianceMins),
+          useFixedTime ? parseFloat(fixedMins) : null,
+        );
+        if (!nextStatus?.isActive || nextStatus.queue.length !== selectedItems.length) {
+          throw new Error('Instant queue did not start. Your selected achievements are still available.');
+        }
+        setTimerStatus(nextStatus);
+        // Only clear selection after the main process has accepted the full queue.
+        setSelectedIds(new Set());
+      } else {
+        const nextStatus = await window.steamAPI?.timer.startQueue(
+          [],
+          parseFloat(baseMultiplier),
+          parseInt(varianceMins),
+          useFixedTime ? parseFloat(fixedMins) : null,
+        );
+        if (nextStatus) setTimerStatus(nextStatus);
+      }
+    } catch (error) {
+      setInstantError(error?.message || 'Instant queue could not start. Your selection was kept.');
     }
   };
 
   const handleStopQueue = () => {
     window.steamAPI?.timer.stopQueue();
+  };
+
+  const handleRecheckVerification = async () => {
+    setInstantError('');
+    try {
+      const nextStatus = await window.steamAPI?.timer.recheckVerification();
+      if (nextStatus) setTimerStatus(nextStatus);
+    } catch (error) {
+      setInstantError(error?.message || 'Steam confirmation could not be rechecked.');
+    }
+  };
+
+  const handleRequestRelock = (achievement) => {
+    if (!achievement?.unlocked || !selectedGame || relockStates[achievement.id] === 'requested') return;
+    setRelockMessage(null);
+    setRelockDialogAchievement(achievement);
+  };
+
+  const handleConfirmRelock = async () => {
+    const achievement = relockDialogAchievement;
+    if (!achievement || !selectedGame) return;
+    setRelockStates((previous) => ({ ...previous, [achievement.id]: 'requested' }));
+    setRelockMessage(null);
+    try {
+      const result = await window.steamAPI?.steam.relockAchievement(selectedGame.appId, achievement.id);
+      if (!result?.success) {
+        setRelockStates((previous) => ({ ...previous, [achievement.id]: 'failed' }));
+        setRelockMessage({ tone: 'danger', text: result?.error || t('achievements.relockFailedDetail') });
+        return;
+      }
+      if (result.state === 'relocked') {
+        // Do not hide a completion based only on a click or local clear: this
+        // update follows local acceptance and remote locked-state confirmation.
+        setAchievements((previous) => previous.map((item) => (
+          item.id === achievement.id ? { ...item, unlocked: false, unlockTime: null, iconUrl: item.iconGrayUrl || item.iconUrl } : item
+        )));
+        setRelockStates((previous) => ({ ...previous, [achievement.id]: 'verified' }));
+        setRelockMessage({ tone: 'success', text: t('achievements.relockVerified') });
+      } else {
+        setRelockStates((previous) => ({ ...previous, [achievement.id]: 'verification-pending' }));
+        setRelockMessage({ tone: 'warning', text: result.message || t('achievements.relockRemotePending') });
+      }
+    } catch (error) {
+      setRelockStates((previous) => ({ ...previous, [achievement.id]: 'failed' }));
+      setRelockMessage({ tone: 'danger', text: error?.message || t('achievements.relockFailedDetail') });
+    } finally {
+      setRelockDialogAchievement(null);
+    }
   };
 
   const handleClearQueue = () => {
@@ -213,21 +388,21 @@ export default function Achievements({ selectedGame, onChangeGame }) {
       {/* ── Page Header ── */}
       <div className="page-header">
         <div>
-          <h1 className="page-title">Achievements</h1>
+          <h1 className="page-title">{t('achievements.title')}</h1>
           <p className="page-sub">
             {selectedGame
-              ? `Viewing achievements for ${selectedGame.name}`
-              : 'Select a game from your library to browse its achievements.'}
+              ? t('achievements.viewing', { game: selectedGame.name })
+              : t('achievements.selectGame')}
           </p>
         </div>
 
         {selectedGame ? (
           <button id="btn-change-game" className="btn-secondary" onClick={onChangeGame}>
-            <RotateCcw size={13} /> Change Game
+            <RotateCcw size={13} /> {t('achievements.changeGame')}
           </button>
         ) : (
           <button id="btn-go-to-library" className="hero-cta" onClick={onChangeGame}>
-            Browse Library <ChevronRight size={15} />
+            {t('achievements.browseLibrary')} <ChevronRight size={15} className="directional-chevron" />
           </button>
         )}
       </div>
@@ -248,7 +423,7 @@ export default function Achievements({ selectedGame, onChangeGame }) {
               <span>AppID {selectedGame.appId}</span>
               <span className="status-divider">·</span>
               <span className="badge badge-green" style={{ padding: '2px 8px' }}>
-                <span className="player-dot" style={{ width: 6, height: 6 }} /> Steam context active
+                <span className="player-dot" style={{ width: 6, height: 6 }} /> {t('achievements.steamContext')}
               </span>
             </div>
           </div>
@@ -257,22 +432,32 @@ export default function Achievements({ selectedGame, onChangeGame }) {
 
       {selectedGame ? (
         <>
-          {/* ── Smart Timer Panel ── */}
+          {/* ── Execution Mode ── */}
+          <div className="filter-tabs humanized-mode-control" role="group" aria-label={t('achievements.progressionMode')} style={{ padding: 4 }}>
+            <button className={`filter-tab${unlockMode === 'instant' ? ' filter-tab-active' : ''}`} onClick={() => setUnlockMode('instant')}>
+              {t('mode.instant')}
+            </button>
+            <button className={`filter-tab${unlockMode === 'humanized' ? ' filter-tab-active' : ''}`} onClick={() => setUnlockMode('humanized')}>
+              {t('mode.humanized')}
+            </button>
+          </div>
+
+          {unlockMode === 'instant' ? (
           <div className="timer-panel">
             <div className="timer-panel-header">
               <h2 className="timer-panel-title">
                 <Clock size={18} color="#a78bfa" />
-                Smart Delay Timer
+                {t('achievements.smartDelay')}
               </h2>
               <div className="timer-actions">
                 {timerStatus.queue.length > 0 && (
                   <button className="btn-danger" onClick={handleClearQueue} title="Clear Queue">
-                    <Trash2 size={14} /> Clear
+                    <Trash2 size={14} /> {t('achievements.clearQueue')}
                   </button>
                 )}
                 {timerStatus.isActive ? (
                   <button className="btn-danger" onClick={handleStopQueue}>
-                    <Square size={14} fill="currentColor" /> Stop
+                    <Square size={14} fill="currentColor" /> {t('common.stop')}
                   </button>
                 ) : (
                   <button 
@@ -281,7 +466,7 @@ export default function Achievements({ selectedGame, onChangeGame }) {
                     disabled={selectedIds.size === 0 && timerStatus.queue.length === 0}
                   >
                     <Play size={14} fill="currentColor" /> 
-                    {timerStatus.queue.length > 0 ? 'Resume Queue' : `Start (${selectedIds.size})`}
+                    {timerStatus.queue.length > 0 ? t('achievements.resumeQueue') : t('achievements.startQueue', { count: selectedIds.size })}
                   </button>
                 )}
               </div>
@@ -290,7 +475,7 @@ export default function Achievements({ selectedGame, onChangeGame }) {
             <div className="timer-controls">
               <div className="timer-control-group">
                 <div className="timer-slider-label">
-                  <span>Speed Multiplier</span>
+                  <span>{t('achievements.speed')}</span>
                   <span>{baseMultiplier}x</span>
                 </div>
                 <input 
@@ -304,7 +489,7 @@ export default function Achievements({ selectedGame, onChangeGame }) {
               </div>
               <div className="timer-control-group">
                 <div className="timer-slider-label">
-                  <span>Random Variance</span>
+                  <span>{t('achievements.variance')}</span>
                   <span>± {varianceMins} mins</span>
                 </div>
                 <input 
@@ -326,11 +511,11 @@ export default function Achievements({ selectedGame, onChangeGame }) {
                   onChange={e => setUseFixedTime(e.target.checked)} 
                   disabled={timerStatus.isActive} 
                 />
-                Use Fixed Custom Time (Manual Override)
+                {t('achievements.fixedTime')}
               </label>
               {useFixedTime && (
                 <div style={{ marginTop: 8, display: 'flex', alignItems: 'center', gap: 8, fontSize: 13 }}>
-                   <span>Base Time:</span>
+                   <span>{t('achievements.baseTime')}</span>
                    <input 
                      type="number" 
                      min="0" step="1" 
@@ -340,16 +525,36 @@ export default function Achievements({ selectedGame, onChangeGame }) {
                      style={{ width: 80, padding: '4px 8px' }} 
                      disabled={timerStatus.isActive} 
                    />
-                   <span>minutes</span>
+                   <span>{t('achievements.minutes')}</span>
                 </div>
               )}
             </div>
+
+            {instantError && (
+              <div className="timer-execution-message danger" role="alert">
+                <strong>{t('achievements.instantQueueFailed')}</strong>
+                <span>{instantError}</span>
+              </div>
+            )}
+
+            {instantOutcome && (
+              <div className={`timer-execution-message ${instantOutcomeTone}`} role={instantOutcomeTone === 'danger' ? 'alert' : 'status'}>
+                <strong>{instantOutcome.state === 'verified' ? t('achievements.confirmationComplete') : instantOutcome.state === 'verification-pending' ? t('achievements.confirmationPending') : instantOutcome.state === 'verification-needs-attention' ? t('achievements.confirmationAttention') : t('common.failed')}</strong>
+                <span>{instantOutcome.message}</span>
+                {instantOutcome.errorCode && <small className="technical-value">{t('achievements.code', { code: instantOutcome.errorCode })}</small>}
+                {timerStatus.pendingVerification && !timerStatus.isActive && (
+                  <button type="button" className="btn-secondary timer-recheck-action" onClick={handleRecheckVerification}>
+                    {t('achievements.recheck')}
+                  </button>
+                )}
+              </div>
+            )}
 
             {timerStatus.queue.length > 0 && (
               <div style={{ marginTop: 16 }}>
                 <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 13 }}>
                   <span style={{ color: 'var(--text-secondary)' }}>
-                    Unlocking: <strong style={{ color: 'var(--text-primary)' }}>{timerStatus.queue[0].name || timerStatus.queue[0].id}</strong>
+                    {timerStatus.pendingVerification ? `${t('achievements.confirming')} ` : `${t('achievements.unlocking')} `}<strong style={{ color: 'var(--text-primary)' }}>{timerStatus.queue[0].name || timerStatus.queue[0].id}</strong>
                   </span>
                   <span style={{ color: 'var(--text-primary)', fontWeight: 600, fontVariantNumeric: 'tabular-nums' }}>
                     {formatTime(timerStatus.currentCountdown)}
@@ -362,48 +567,76 @@ export default function Achievements({ selectedGame, onChangeGame }) {
                   />
                 </div>
                 <div style={{ fontSize: 11, color: 'var(--text-muted)', marginTop: 6, textAlign: 'right' }}>
-                  {timerStatus.unlockedCount} / {timerStatus.totalInQueue} Completed
+                  {timerStatus.unlockedCount} / {timerStatus.totalInQueue} {t('common.completed')}
                 </div>
               </div>
             )}
           </div>
+          ) : (
+            <HumanizedSchedulePanel
+              selectedGame={selectedGame}
+              achievements={achievements}
+              canonicalAchievements={canonicalOrderedAchievements}
+              selectedIds={selectedIds}
+              orderMode={humanizedOrderMode}
+              onOrderModeChange={setHumanizedOrderMode}
+              onScheduleCreated={() => setSelectedIds(new Set())}
+            />
+          )}
+
+          {relockMessage && (
+            <div className={`timer-execution-message ${relockMessage.tone}`} role={relockMessage.tone === 'danger' ? 'alert' : 'status'}>
+              <strong>{relockMessage.tone === 'success' ? t('achievements.relockSucceeded') : relockMessage.tone === 'warning' ? t('achievements.relockPendingTitle') : t('achievements.relockFailed')}</strong>
+              <span>{relockMessage.text}</span>
+            </div>
+          )}
 
           {/* ── Toolbar ── */}
-          <div className="toolbar" role="toolbar" aria-label="Achievement filters">
+          {unlockMode === 'humanized' && (
+            <div className="humanized-grid-context" role="status">
+              <span>{humanizedOrderError
+                ? humanizedOrderError
+                : selectedOrderingMetadata?.message
+                  ? selectedOrderingMetadata.message
+                  : <>{t('achievements.gridOrder', { mode: t(HUMANIZED_ORDER_LABELS[humanizedOrderMode] || 'mode.original') })}</>}</span>
+            </div>
+          )}
+          <div className="toolbar" role="toolbar" aria-label={t('achievements.filtersAria')}>
             <div className="search-wrap">
               <Search size={14} className="search-icon" aria-hidden="true" />
               <input
                 type="search"
                 className="search-input"
-                placeholder="Search achievements…"
+                placeholder={t('achievements.search')}
                 value={search}
                 onChange={(e) => setSearch(e.target.value)}
               />
             </div>
             <div className="filter-tabs" role="group">
               <Filter size={13} color="var(--text-muted)" aria-hidden="true" />
-              {FILTERS.map((f) => (
+              {FILTERS.map(({ value, key }) => (
                 <button
-                  key={f}
-                  className={`filter-tab${filter === f ? ' filter-tab-active' : ''}`}
-                  onClick={() => setFilter(f)}
+                  key={value}
+                  className={`filter-tab${filter === value ? ' filter-tab-active' : ''}`}
+                  onClick={() => setFilter(value)}
                 >
-                  {f}
+                  {t(key)}
                 </button>
               ))}
             </div>
-            {lockedAchievements.length > 0 && (
+            {visibleLockedIds.length > 0 && (
               <button 
                 className="btn-secondary" 
                 style={{ marginLeft: 8, padding: '5px 12px', fontSize: 12 }}
                 onClick={handleSelectAllLocked}
+                title={t('achievements.visibleLockedTooltip')}
               >
-                {allLockedSelected ? 'Deselect All Locked' : 'Select All Locked'}
+                {allVisibleLockedSelected ? t('achievements.deselectVisibleLocked') : t('achievements.selectAllLocked')}
               </button>
             )}
             {selectedIds.size > 0 && (
               <div style={{ marginLeft: 'auto', fontSize: 13, color: 'var(--accent-purple)', fontWeight: 600 }}>
-                {selectedIds.size} Selected
+                {t('common.selected', { count: selectedIds.size })}
               </div>
             )}
           </div>
@@ -412,8 +645,19 @@ export default function Achievements({ selectedGame, onChangeGame }) {
           {isLoading ? (
             <div className="empty-state" style={{ marginTop: 40 }}>
               <Loader2 size={36} color="#a78bfa" className="animate-spin" />
-              <h2 className="empty-title" style={{ marginTop: 16 }}>Fetching achievements...</h2>
-              <p className="empty-sub">Syncing data with Steam servers</p>
+              <h2 className="empty-title" style={{ marginTop: 16 }}>{t('achievements.fetching')}</h2>
+              <p className="empty-sub">{t('achievements.syncing')}</p>
+            </div>
+          ) : loadError ? (
+            <div className="empty-state" style={{ marginTop: 40 }}>
+              <div className="empty-icon-wrap" style={{ width: 60, height: 60, marginBottom: 16 }}>
+                <Trophy size={28} color="#fca5a5" />
+              </div>
+              <h2 className="empty-title">{t('achievements.loadFailed')}</h2>
+              <p className="empty-sub">{loadError}</p>
+              <button className="btn-secondary" style={{ marginTop: 16 }} onClick={() => window.location.reload()}>
+                {t('common.retry')}
+              </button>
             </div>
           ) : (
             <>
@@ -426,6 +670,8 @@ export default function Achievements({ selectedGame, onChangeGame }) {
                     inQueue={queueIds.has(ach.id)}
                     queueIndex={queueIndexMap.get(ach.id) || selectedIndexMap.get(ach.id)}
                     onToggleSelect={() => handleToggleSelect(ach.id)}
+                    onRelock={handleRequestRelock}
+                    relockState={relockStates[ach.id]}
                   />
                 ))}
               </div>
@@ -434,8 +680,8 @@ export default function Achievements({ selectedGame, onChangeGame }) {
                   <div className="empty-icon-wrap" style={{ width: 60, height: 60, marginBottom: 16 }}>
                     <Trophy size={28} color="#94a3b8" />
                   </div>
-                  <h2 className="empty-title">No achievements found</h2>
-                  <p className="empty-sub">Check if this game supports Steam achievements.</p>
+                  <h2 className="empty-title">{t('achievements.noResults')}</h2>
+                  <p className="empty-sub">{t('achievements.noResultsSub')}</p>
                 </div>
               )}
             </>
@@ -448,11 +694,21 @@ export default function Achievements({ selectedGame, onChangeGame }) {
             <div className="empty-icon-ring-inner" />
             <Trophy size={42} color="#7c3aed" style={{ opacity: 0.7 }} />
           </div>
-          <h2 className="empty-title">No Game Selected</h2>
-          <p className="empty-sub">
-            Head to the Library, pick a game, and the app will automatically
-            restart with the correct Steam context to fetch its achievements.
-          </p>
+          <h2 className="empty-title">{t('achievements.noGame')}</h2>
+          <p className="empty-sub">{t('achievements.noGameSub')}</p>
+        </div>
+      )}
+
+      {relockDialogAchievement && (
+        <div className="relock-dialog-backdrop" role="presentation">
+          <section className="relock-dialog" role="dialog" aria-modal="true" aria-labelledby="relock-dialog-title">
+            <h2 id="relock-dialog-title">{t('achievements.relockTitle')}</h2>
+            <p>{t('achievements.relockWarning', { achievement: relockDialogAchievement.name || relockDialogAchievement.id })}</p>
+            <div className="relock-dialog-actions">
+              <button type="button" className="btn-secondary" onClick={() => setRelockDialogAchievement(null)}>{t('common.cancel')}</button>
+              <button type="button" className="btn-danger" onClick={handleConfirmRelock}>{t('achievements.confirmRelock')}</button>
+            </div>
+          </section>
         </div>
       )}
     </div>
