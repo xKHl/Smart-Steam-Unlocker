@@ -1,8 +1,31 @@
+# Dependencies and generated application output
 node_modules/
 dist/
 release/
+coverage/
+
+# Local environment and credentials
 .env
+.env.*
+!.env.example
+!.env.sample
+steam-api-key.bin
+
+# Electron local runtime state and diagnostics
+app-settings.json
+app-settings.corrupt.*.json
+runtime-diagnostics*.json
+runtime-diagnostics*.jsonl
+DevToolsActivePort
+
+# Logs
 *.log
 npm-debug.log*
+
+# Editor and operating-system metadata
+.vscode/
+.idea/
+*.code-workspace
+*.iml
 .DS_Store
 Thumbs.db
