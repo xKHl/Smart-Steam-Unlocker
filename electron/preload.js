@@ -93,6 +93,9 @@ contextBridge.exposeInMainWorld('steamAPI', {
     pause: () => ipcRenderer.invoke('trading-cards:pause'),
     resume: () => ipcRenderer.invoke('trading-cards:resume'),
     stop: () => ipcRenderer.invoke('trading-cards:stop'),
+    communityStatus: () => ipcRenderer.invoke('trading-cards:community-status'),
+    communitySignIn: () => ipcRenderer.invoke('trading-cards:community-sign-in'),
+    communitySignOut: () => ipcRenderer.invoke('trading-cards:community-sign-out'),
     onUpdate: (cb) => {
       const listener = (_e, status) => cb(status);
       ipcRenderer.on('trading-cards:update', listener);

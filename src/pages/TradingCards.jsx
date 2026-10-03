@@ -82,6 +82,7 @@ export default function TradingCards() {
   const [search, setSearch] = useState('');
   const [loading, setLoading] = useState(true);
   const [actionBusy, setActionBusy] = useState(false);
+  const [communityBusy, setCommunityBusy] = useState(false);
   const [notice, setNotice] = useState(null);
   const [, setClock] = useState(0);
 
@@ -149,6 +150,29 @@ export default function TradingCards() {
       setNotice({ tone: 'error', text: localizeError(t, locale, error, 'trading.couldNotComplete') });
     } finally {
       setActionBusy(false);
+    }
+  };
+
+  const communitySignIn = async () => {
+    setCommunityBusy(true);
+    setNotice(null);
+    try {
+      await window.steamAPI?.tradingCards.communitySignIn();
+      await load({ forceRefresh: true });
+    } catch (error) {
+      setNotice({ tone: 'error', text: localizeError(t, locale, error, 'trading.couldNotComplete') });
+    } finally {
+      setCommunityBusy(false);
+    }
+  };
+
+  const communitySignOut = async () => {
+    setCommunityBusy(true);
+    try {
+      await window.steamAPI?.tradingCards.communitySignOut();
+      await load({ forceRefresh: true });
+    } finally {
+      setCommunityBusy(false);
     }
   };
 
@@ -234,8 +258,21 @@ export default function TradingCards() {
               </select>
             </div>
 
-            {!library.cardDataAvailable && library.success && (
-              <p className="trading-data-caveat">{t('trading.dataCaveat')}</p>
+            {library.success && (
+              library.community?.connected ? (
+                <div className="trading-community-panel connected" role="status">
+                  <span><strong>{t('trading.communityConnected')}</strong> {t('trading.communityConnectedDetail')}</span>
+                  <button type="button" className="btn-secondary" disabled={communityBusy} onClick={communitySignOut}>{t('trading.communitySignOut')}</button>
+                </div>
+              ) : (
+                <div className="trading-community-panel" role="status">
+                  <span>
+                    <strong>{t('trading.communityTitle')}</strong>{' '}
+                    {library.community?.errorCode === 'COMMUNITY_ACCOUNT_MISMATCH' ? t('trading.communityMismatch') : t('trading.communityExplain')}
+                  </span>
+                  <button type="button" className="btn-primary" disabled={communityBusy} onClick={communitySignIn}>{communityBusy ? t('common.loading') : t('trading.communitySignIn')}</button>
+                </div>
+              )
             )}
 
             <div className="trading-game-grid" aria-live="polite">

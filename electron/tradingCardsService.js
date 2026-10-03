@@ -3,6 +3,7 @@ const settingsStore = require('./settingsStore');
 const credentialStore = require('./credentialStore');
 const steamManager = require('./steamManager');
 const { createStoreMetadataClient } = require('./tradingCards/storeMetadataClient');
+const { createCommunityBadgesClient } = require('./tradingCards/communityBadges');
 const {
   CARD_ELIGIBILITY,
   DROP_STATUS,
@@ -105,6 +106,24 @@ function saveStoreCache() {
   }
 }
 
+// The Electron-bound session module is loaded lazily so pure modules and
+// tests never need a running Electron app.
+function communitySession() {
+  return require('./tradingCards/communitySession');
+}
+
+async function readCommunityDrops(steamId) {
+  const sessionModule = communitySession();
+  const status = await sessionModule.getStatus();
+  if (!status.signedIn) return { connected: false, signedIn: false, success: false, errorCode: null, badges: [] };
+  if (status.steamId && String(status.steamId) !== String(steamId)) {
+    return { connected: false, signedIn: true, success: false, errorCode: 'COMMUNITY_ACCOUNT_MISMATCH', badges: [] };
+  }
+  const client = createCommunityBadgesClient({ fetchImpl: sessionModule.fetchWithSession });
+  const result = await client.getRemainingDrops(steamId);
+  return { connected: result.success, signedIn: true, ...result };
+}
+
 async function getLibrary({ forceRefresh = false } = {}) {
   if (!forceRefresh && libraryCache && Date.now() - libraryCacheAt < LIBRARY_CACHE_TTL_MS) return clone(libraryCache);
 
@@ -120,10 +139,16 @@ async function getLibrary({ forceRefresh = false } = {}) {
   if (!steamStatus) return { success: false, errorCode: 'STEAM_NOT_CONNECTED', games: [], summary: summarizeTradingCardLibrary([]) };
 
   try {
-    const [ownedGames, badgeResult] = await Promise.all([
+    const [ownedGames, badgeResult, communityResult] = await Promise.all([
       steamManager.getOwnedGames(apiKey, steamStatus.steamId),
       steamManager.getTradingCardBadges(apiKey, steamStatus.steamId),
+      readCommunityDrops(steamStatus.steamId).catch(() => ({ connected: false, signedIn: false, success: false, errorCode: 'COMMUNITY_FETCH_FAILED', badges: [] })),
     ]);
+    // Signed-in badge-page counts are the only real source of remaining drops.
+    const dropRecords = [
+      ...(badgeResult.success ? badgeResult.badges : []),
+      ...(communityResult.success ? communityResult.badges : []),
+    ];
     loadStoreCache();
     const unknownStoreEligibility = ownedGames
       .map((game) => Number(game.appId))
@@ -135,7 +160,7 @@ async function getLibrary({ forceRefresh = false } = {}) {
     }
     const games = classifyTradingCardLibrary(ownedGames, {
       eligibilityByAppId: storeEligibilityCache,
-      badgeRecords: badgeResult.success ? badgeResult.badges : [],
+      badgeRecords: dropRecords,
       cardBadgeAppIds: badgeResult.success ? badgeResult.cardBadgeAppIds : [],
     });
     // Drop counts exist only when Steam explicitly returned them; the Web API
@@ -143,7 +168,8 @@ async function getLibrary({ forceRefresh = false } = {}) {
     const result = {
       success: true,
       errorCode: badgeResult.success ? null : badgeResult.errorCode,
-      cardDataAvailable: badgeResult.success && Array.isArray(badgeResult.badges) && badgeResult.badges.length > 0,
+      cardDataAvailable: dropRecords.length > 0 || communityResult.success,
+      community: { connected: communityResult.success, signedIn: communityResult.signedIn, errorCode: communityResult.errorCode || null },
       games,
       summary: summarizeTradingCardLibrary(games),
       refreshedAt: Date.now(),
@@ -261,6 +287,22 @@ async function init() {
   return status();
 }
 
+async function communityStatus() {
+  return communitySession().getStatus();
+}
+
+async function communitySignIn(parent) {
+  const status = await communitySession().signIn(parent);
+  libraryCache = null;
+  return status;
+}
+
+async function communitySignOut() {
+  const status = await communitySession().signOut();
+  libraryCache = null;
+  return status;
+}
+
 function resetForTests() {
   stopRefreshLoop();
   monitor = inactiveMonitor();
@@ -284,5 +326,8 @@ module.exports = {
   pause,
   resume,
   stop,
+  communityStatus,
+  communitySignIn,
+  communitySignOut,
   resetForTests,
 };

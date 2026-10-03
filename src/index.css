@@ -2844,3 +2844,46 @@ html[lang='ar'] body * {
 .library-error-card .btn-secondary { display: inline-flex; align-items: center; gap: 7px; }
 
 .timer-recheck-action { justify-self: start; margin-top: 6px; padding: 5px 10px; font-size: 11px; }
+
+/* Trading Cards: Steam Community sign-in panel for remaining card drops. */
+.trading-community-panel {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin: 0 0 13px;
+  padding: 10px 12px;
+  border: 1px solid rgba(124, 58, 237, 0.35);
+  border-radius: 8px;
+  background: rgba(124, 58, 237, 0.08);
+  color: #c9c3d6;
+  font-size: 11.5px;
+  line-height: 1.55;
+}
+.trading-community-panel strong { color: #ede9fe; }
+.trading-community-panel button { flex-shrink: 0; white-space: nowrap; font-size: 11.5px; padding: 7px 12px; }
+.trading-community-panel.connected { border-color: rgba(74, 222, 128, 0.3); background: rgba(74, 222, 128, 0.06); }
+
+/* Primary action button (Request launch, Scan & Analyze, Community sign-in).
+   The class was used by three pages but never defined, so those buttons
+   rendered as plain text. */
+.btn-primary {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 7px;
+  padding: 8px 14px;
+  border: none;
+  border-radius: var(--radius-md);
+  background: linear-gradient(135deg, var(--accent-purple), var(--accent-indigo));
+  color: #fff;
+  font-family: inherit;
+  font-size: 12.5px;
+  font-weight: 600;
+  white-space: nowrap;
+  cursor: pointer;
+  box-shadow: 0 4px 14px rgba(124, 58, 237, 0.3);
+  transition: box-shadow var(--transition), transform var(--transition), opacity var(--transition);
+}
+.btn-primary:hover:not(:disabled) { transform: translateY(-1px); box-shadow: 0 6px 20px rgba(124, 58, 237, 0.45); }
+.btn-primary:disabled { opacity: 0.55; cursor: not-allowed; box-shadow: none; }

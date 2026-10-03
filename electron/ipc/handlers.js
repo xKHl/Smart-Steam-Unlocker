@@ -238,6 +238,11 @@ function registerIpcHandlers() {
   registerHandler('trading-cards:pause', () => tradingCardsService.pause());
   registerHandler('trading-cards:resume', () => tradingCardsService.resume());
   registerHandler('trading-cards:stop', () => tradingCardsService.stop());
+  // Steam Community sign-in for remaining-drop counts. Takes no renderer input:
+  // the login window loads a fixed Steam URL in an isolated partition.
+  registerHandler('trading-cards:community-status', () => tradingCardsService.communityStatus());
+  registerHandler('trading-cards:community-sign-in', (event) => tradingCardsService.communitySignIn(BrowserWindow.fromWebContents(event.sender)));
+  registerHandler('trading-cards:community-sign-out', () => tradingCardsService.communitySignOut());
 
   // ─── Legacy Timer (existing instant behavior) ─────────────────────────────
   const timerService = require('../timerService');
