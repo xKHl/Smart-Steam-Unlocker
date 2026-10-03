@@ -12,7 +12,8 @@ import {
   Sparkles,
   Trash2,
 } from 'lucide-react';
-import { itemStatusPresentation, verificationPresentation } from '../lib/humanizedVerificationPresentation.mjs';
+import { itemStatusPresentation, localizeVerificationPresentation, verificationPresentation } from '../lib/humanizedVerificationPresentation.mjs';
+import { localizeError } from '../i18n/errors.mjs';
 import { shouldRefreshHumanizedCountdown } from '../lib/humanizedCountdownRefresh.mjs';
 import { projectExecutionAchievements } from '../lib/executionAchievementPayload.mjs';
 import { useI18n } from '../i18n';
@@ -45,18 +46,6 @@ const SCHEDULE_STATE = {
   completed: { labelKey: 'common.completed', tone: 'success' },
   failed: { labelKey: 'scheduler.scheduleNeedsAttention', tone: 'danger' },
 };
-
-function formatDate(timestamp) {
-  if (!Number.isFinite(timestamp)) return 'Time pending';
-  return new Date(timestamp).toLocaleString([], {
-    month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit',
-  });
-}
-
-function formatRarity(value) {
-  const numeric = Number(value);
-  return Number.isFinite(numeric) ? `${Math.round(numeric)}% common` : 'Rarity unavailable';
-}
 
 function localizedDuration(milliseconds, t) {
   const totalSeconds = Math.max(0, Math.round(Number(milliseconds) / 1000));
@@ -130,15 +119,16 @@ export default function HumanizedSchedulePanel({ selectedGame, achievements, can
   const nextItem = schedule?.items?.find((item) => ['scheduled', 'retry'].includes(item.status));
   const nextVerificationAt = verificationItem?.verificationMeta?.nextVerificationAt;
   const verificationReason = verificationItem?.verificationMeta?.reasonCode;
-  const verificationView = verificationPresentation(verificationItem, schedule?.state);
+  const verificationView = localizeVerificationPresentation(verificationPresentation(verificationItem, schedule?.state), t);
   const completedPercent = summary?.total ? Math.round((summary.completed / summary.total) * 100) : 0;
-  const runtimeError = status.runtime?.error?.message || '';
-  const itemError = schedule?.items?.find((item) => item.lastError && item.status !== 'verification-required')?.lastError || '';
+  const runtimeError = status.runtime?.error ? localizeError(t, locale, status.runtime.error, 'scheduler.actionFailed') : '';
+  const failedItem = schedule?.items?.find((item) => item.lastError && item.status !== 'verification-required');
+  const itemError = failedItem ? localizeError(t, locale, { errorCode: failedItem.lastErrorCode, error: failedItem.lastError }, 'scheduler.scheduleNeedsAttentionDetail') : '';
   const scheduleMeta = scheduleStateMeta(schedule?.state);
   const visibleItems = showAllItems ? (schedule?.items || []) : (schedule?.items || []).slice(0, 6);
   const currentOrder = ORDER_OPTIONS.find((option) => option.value === orderMode) || ORDER_OPTIONS[0];
   const verificationDetail = verificationView?.detail || (verificationItem
-    ? `${t('scheduler.checkingShortly')}${verificationReason ? ` (${verificationReason.replaceAll('_', ' ').toLowerCase()})` : ''}`
+    ? `${t('scheduler.checkingShortly')}${verificationReason && locale === 'en' ? ` (${verificationReason.replaceAll('_', ' ').toLowerCase()})` : ''}`
     : null);
   const scheduleTiming = schedule?.timing;
   const currentActivity = executingItem
@@ -168,7 +158,7 @@ export default function HumanizedSchedulePanel({ selectedGame, achievements, can
       if (nextStatus) setStatus(nextStatus);
       return nextStatus;
     } catch (exception) {
-      setError(exception instanceof Error ? exception.message : t('scheduler.actionFailed'));
+      setError(localizeError(t, locale, exception, 'scheduler.actionFailed'));
       return null;
     } finally {
       setIsWorking(false);
@@ -343,7 +333,7 @@ export default function HumanizedSchedulePanel({ selectedGame, achievements, can
             </div>
             {scheduleTiming && (
               <p className="humanized-timing-summary">
-                {scheduleTiming.preset ? `${timingPresetCopy({ id: scheduleTiming.preset }, t).label} ${t('scheduler.pace')}` : t('scheduler.customPace')} · {t('scheduler.initialDelaySummary', { time: localizedDuration(scheduleTiming.initialDelayMs, t) })} · {localizedDuration(scheduleTiming.baseIntervalMs, t)} ± {localizedDuration(scheduleTiming.varianceMs, t)}
+                {scheduleTiming.preset ? t('scheduler.presetPace', { preset: timingPresetCopy({ id: scheduleTiming.preset }, t).label }) : t('scheduler.customPace')} · {t('scheduler.initialDelaySummary', { time: localizedDuration(scheduleTiming.initialDelayMs, t) })} · {localizedDuration(scheduleTiming.baseIntervalMs, t)} ± {localizedDuration(scheduleTiming.varianceMs, t)}
               </p>
             )}
           </div>

@@ -20,6 +20,7 @@ const runtimeDiagnostics = require('./runtimeDiagnostics');
 const { pollForVerifiedUnlock } = require('./humanized/verificationPolling');
 const { app, BrowserWindow } = require('electron');
 const { operationCoordinator, OperationLeaseConflictError } = require('./operationCoordinator');
+const relockTracker = require('./relockTracker');
 
 const steamApiClient = createSteamApiClient();
 
@@ -575,6 +576,17 @@ async function unlockAchievement(achievementId, expectedAppId = null) {
         // Activation acceptance is not remote proof. Both Instant and Humanized
         // callers now publish renderer/cache state only after their independent
         // verification path confirms Steam's reported unlock state.
+        
+        // REVISION: The activation path is allowed to refresh and confirm the local
+        // state immediately for UI consistency, while remote verification runs independently.
+        try {
+          const isUnlockedLocally = localClient.achievement.isActivated(achievementId);
+          if (isUnlockedLocally) {
+            confirmVerifiedAchievement(targetAppId, achievementId);
+          }
+        } catch (_error) {
+          // Ignore local read errors during activation cleanup.
+        }
       } else {
         errorMsg = `Activation returned false after ${attemptNum} attempt(s)`;
         errorCode = 'ACTIVATION_REJECTED';
@@ -696,12 +708,25 @@ async function relockAchievement(achievementId, expectedAppId = null) {
 
     const wasUnlocked = localClient.achievement.isActivated(achievementId) === true;
     runtimeDiagnostics.trace('relock', 'local-state', { appId: targetAppId, achievementId, wasUnlocked });
-    if (!wasUnlocked) {
+
+    // Fetch remote Web API state BEFORE ClearAchievement decision
+    let preVerification = null;
+    try {
+      preVerification = await getAchievementVerification(targetAppId, achievementId);
+    } catch (_error) {
+      // Proceed with local state if Web API is unavailable
+    }
+    
+    const remoteUnlocked = preVerification?.success ? preVerification.unlocked : null;
+    
+    // Mismatch or already locked: synchronize state and abort.
+    if (!wasUnlocked || remoteUnlocked === false) {
+      publishAchievementRelocked(targetAppId, achievementId);
       return finalizeFailure({
         success: false,
         achievementId,
         appId: targetAppId,
-        error: 'Steam currently reports this achievement as locked; it was not changed.',
+        error: 'Steam currently reports this achievement as locked; UI state has been synchronized.',
         errorCode: 'ACHIEVEMENT_ALREADY_LOCKED',
       });
     }
@@ -796,12 +821,20 @@ async function relockAchievement(achievementId, expectedAppId = null) {
       verificationUnlocked: verification.unlocked ?? null,
       errorCode: verification.errorCode || null,
     });
+    // Register with the background relock tracker for persistent, read-only
+    // verification polling. The tracker never re-issues ClearAchievement.
+    try {
+      relockTracker.trackPendingRelock({ appId: targetAppId, achievementId });
+    } catch (_trackerError) {
+      // Non-fatal — the one-shot result is still returned.
+    }
     return {
       success: true,
       state: 'verification-pending',
       achievementId,
       appId: targetAppId,
       localAccepted: true,
+      localExecutionSucceeded: true,
       message: pendingReason,
       verification,
     };

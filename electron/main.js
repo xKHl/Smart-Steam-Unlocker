@@ -129,9 +129,16 @@ app.whenReady().then(async () => {
   const timerService = require('./timerService');
   const humanizedService = require('./humanizedService');
   const tradingCardsService = require('./tradingCardsService');
+  const relockTracker = require('./relockTracker');
   timerService.init();
   await humanizedService.init();
   await tradingCardsService.init();
+
+  // Resume background relock verification polling for any pending relocks
+  // persisted from a previous session.
+  const settingsStore = require('./settingsStore');
+  const steamManager = require('./steamManager');
+  relockTracker.init({ settingsStore, steamManager });
 
   // ③ Open the main window
   await createWindow();

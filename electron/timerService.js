@@ -25,11 +25,13 @@ let lastOutcome = null;
 // authoritative Web API has not yet confirmed it. While present, the timer can
 // only read/verify this achievement; it cannot activate it again.
 let pendingVerification = null;
+let activeVerifications = [];
 // Invalidates an in-flight read when Stop, Resume, Clear, or a manual recheck
 // changes the intended verification state before that read returns.
 let verificationGeneration = 0;
 let tickInterval = null;
 let isUnlocking = false;
+let isVerifyingBackground = false;
 let activeAppId = null;
 let leaseOwnerId = null;
 
@@ -82,6 +84,7 @@ function init() {
   unlockedCount = savedState.unlockedCount || 0;
   lastOutcome = savedState.lastOutcome || null;
   pendingVerification = savedState.pendingVerification || null;
+  activeVerifications = savedState.activeVerifications || [];
 
   // Existing queued execution still restores paused. An already accepted
   // activation is different: resuming its read-only confirmation loop cannot
@@ -89,6 +92,8 @@ function init() {
   isActive = Boolean(pendingVerification?.autoContinue && queue.length > 0);
   if (isActive) {
     setVerificationCountdown();
+  }
+  if (isActive || activeVerifications.length > 0) {
     startTickLoop();
   }
   synchronizeQueueLeases();
@@ -107,6 +112,7 @@ function saveState() {
     unlockedCount,
     lastOutcome,
     pendingVerification,
+    activeVerifications,
   });
 }
 
@@ -129,6 +135,7 @@ function getStatus() {
     unlockedCount,
     lastOutcome,
     pendingVerification,
+    activeVerifications,
   };
 }
 
@@ -317,23 +324,43 @@ async function unlockNext() {
     }
 
     if (result?.success || result?.operationMayHaveApplied) {
-      // An accepted or uncertain post-activation result becomes a verification
-      // barrier. No retry activation can occur while this evidence exists.
-      pendingVerification = createPendingVerification({
+      const isAccepted = result?.success;
+      const newPending = createPendingVerification({
         achievementId: achievement.id,
         now: Date.now(),
         policy: DEFAULT_INSTANT_VERIFICATION_POLICY,
       });
+
       lastOutcome = {
-        state: 'verification-pending',
-        activation: result?.success ? 'accepted' : 'uncertain',
+        state: isAccepted ? 'execution-succeeded' : 'verification-pending',
+        activation: isAccepted ? 'accepted' : 'uncertain',
         verification: 'pending',
         achievementId: achievement.id,
-        message: result?.success
+        message: isAccepted
           ? 'Steam accepted activation. Confirming the reported Steam state in the background.'
           : `${result?.error || 'Steam execution became uncertain after activation.'} Checking Steam before any further action.`,
-        errorCode: result?.success ? 'ACTIVATION_ACCEPTED' : (result?.errorCode || 'OPERATION_UNCERTAIN'),
+        errorCode: isAccepted ? 'ACTIVATION_ACCEPTED' : (result?.errorCode || 'OPERATION_UNCERTAIN'),
       };
+
+      if (isAccepted) {
+        activeVerifications.push(newPending);
+        queue.shift();
+        unlockedCount += 1;
+        synchronizeQueueLeases();
+        
+        if (queue.length > 0 && isActive) {
+          currentCountdown = calculateNextDelay();
+          saveState();
+          emitUpdate();
+        } else {
+          stopQueue({ pauseVerification: false });
+        }
+        return;
+      }
+
+      // An uncertain post-activation result becomes a verification
+      // barrier. No retry activation can occur while this evidence exists.
+      pendingVerification = newPending;
       await verifyPendingActivation({ lockAlreadyHeld: true });
       return;
     }
@@ -358,6 +385,8 @@ async function unlockNext() {
 function startTickLoop() {
   if (tickInterval) clearInterval(tickInterval);
   tickInterval = setInterval(() => {
+    processBackgroundVerifications();
+
     if (!isActive || isUnlocking) return;
     if (pendingVerification?.autoContinue) {
       setVerificationCountdown();
@@ -370,6 +399,53 @@ function startTickLoop() {
     emitUpdate();
     if (currentCountdown <= 0) unlockNext();
   }, 1_000);
+}
+
+async function processBackgroundVerifications() {
+  if (isVerifyingBackground || activeVerifications.length === 0 || !activeAppId) return;
+  isVerifyingBackground = true;
+  let stateChanged = false;
+  try {
+    const now = Date.now();
+    for (let i = activeVerifications.length - 1; i >= 0; i--) {
+      const pending = activeVerifications[i];
+      if (pending.autoContinue && pending.nextVerificationAt && now >= pending.nextVerificationAt) {
+        try {
+          const verification = await steamManager.getAchievementVerification(activeAppId, pending.achievementId);
+          const transition = advancePendingVerification({
+            pending,
+            result: verification,
+            now,
+            policy: DEFAULT_INSTANT_VERIFICATION_POLICY,
+          });
+          
+          if (transition.state === 'verified') {
+            steamManager.confirmVerifiedAchievement(activeAppId, pending.achievementId);
+            activeVerifications.splice(i, 1);
+            stateChanged = true;
+          } else {
+            activeVerifications[i] = transition.pending;
+            stateChanged = true;
+            if (transition.state !== 'pending') {
+              activeVerifications[i].autoContinue = false;
+            }
+          }
+        } catch (_error) {
+          // Ignore network errors in background loop, it will retry
+        }
+      }
+    }
+  } finally {
+    isVerifyingBackground = false;
+    if (stateChanged) {
+      saveState();
+      emitUpdate();
+    }
+    if (activeVerifications.length === 0 && !isActive) {
+      if (tickInterval) clearInterval(tickInterval);
+      tickInterval = null;
+    }
+  }
 }
 
 function startQueue(achievements, multiplier, variance, overrideMins = null) {
@@ -418,24 +494,33 @@ function startQueue(achievements, multiplier, variance, overrideMins = null) {
 
 function stopQueue({ pauseVerification = true } = {}) {
   isActive = false;
-  if (pauseVerification && pendingVerification) {
-    verificationGeneration += 1;
-    pendingVerification = {
-      ...pendingVerification,
-      autoContinue: false,
-      nextVerificationAt: null,
-    };
-    lastOutcome = {
-      state: 'verification-pending',
-      activation: lastOutcome?.activation || 'accepted',
-      verification: 'paused',
-      achievementId: pendingVerification.achievementId,
-      message: 'Background Steam confirmation is paused. Resume the queue or use Recheck to continue without another activation.',
-      errorCode: 'VERIFICATION_PAUSED',
-    };
+  if (pauseVerification) {
+    if (pendingVerification) {
+      verificationGeneration += 1;
+      pendingVerification = {
+        ...pendingVerification,
+        autoContinue: false,
+        nextVerificationAt: null,
+      };
+      lastOutcome = {
+        state: 'verification-pending',
+        activation: lastOutcome?.activation || 'accepted',
+        verification: 'paused',
+        achievementId: pendingVerification.achievementId,
+        message: 'Background Steam confirmation is paused. Resume the queue or use Recheck to continue without another activation.',
+        errorCode: 'VERIFICATION_PAUSED',
+      };
+    }
+    for (let i = 0; i < activeVerifications.length; i++) {
+      activeVerifications[i].autoContinue = false;
+      activeVerifications[i].nextVerificationAt = null;
+    }
   }
-  if (tickInterval) clearInterval(tickInterval);
-  tickInterval = null;
+  // Only stop the tick loop if no background verifications remain active
+  if (activeVerifications.length === 0 || pauseVerification) {
+    if (tickInterval) clearInterval(tickInterval);
+    tickInterval = null;
+  }
   synchronizeQueueLeases();
   saveState();
   emitUpdate();

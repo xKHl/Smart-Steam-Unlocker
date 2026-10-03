@@ -92,11 +92,11 @@ describe('single-achievement Instant result flow', () => {
 
     assert.match(startHandler, /projectExecutionAchievements\(/);
     assert.match(startHandler, /await window\.steamAPI\?\.timer\.startQueue/);
-    assert.match(startHandler, /selected achievements are still available/);
+    assert.match(startHandler, /t\('achievements\.instantNotStarted'\)/);
     const awaitIndex = startHandler.indexOf('await window.steamAPI?.timer.startQueue');
     const clearSelectionIndex = startHandler.indexOf('setSelectedIds(new Set())');
     assert.ok(awaitIndex >= 0 && clearSelectionIndex > awaitIndex, 'selection must clear only after queue IPC acknowledgement');
-    assert.match(page, /Instant queue did not start/);
+    assert.match(source('src/i18n/translations.mjs'), /Instant queue did not start\. Your selected achievements are still available\./);
     assert.match(page, /t\('achievements\.confirmationComplete'\)/);
     assert.match(page, /t\('achievements\.confirmationPending'\)/);
   });

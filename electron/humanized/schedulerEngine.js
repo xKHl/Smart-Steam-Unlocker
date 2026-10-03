@@ -159,6 +159,42 @@ function isTerminalItem(item) {
   return [ITEM_STATUS.COMPLETED, ITEM_STATUS.FAILED].includes(item.status);
 }
 
+/**
+ * Shifts remaining scheduled items forward so that the first due item starts at
+ * `baseTime` and subsequent items preserve their original inter-item delays.
+ * Completed, failed, executing, and verification-required items are untouched.
+ * Ordering (sequencePosition) is never changed.
+ */
+function rebaseScheduledTimeline(items, baseTime) {
+  const scheduledItems = items
+    .filter((item) => [ITEM_STATUS.SCHEDULED, ITEM_STATUS.RETRY].includes(item.status))
+    .sort((left, right) => (left.sequencePosition ?? Number.MAX_SAFE_INTEGER) - (right.sequencePosition ?? Number.MAX_SAFE_INTEGER));
+  if (!scheduledItems.length) return items;
+
+  // Only rebase when at least one item's scheduledAt is strictly in the past.
+  const earliest = scheduledItems[0];
+  if (earliest.scheduledAt >= baseTime) return items;
+
+  let cursor = baseTime;
+  const rebasedIds = new Map();
+  for (let i = 0; i < scheduledItems.length; i++) {
+    const item = scheduledItems[i];
+    // First rebased item starts at baseTime; subsequent items use their
+    // original delayMs to preserve the humanized inter-item spacing.
+    if (i > 0) {
+      const gap = Number.isFinite(item.delayMs) && item.delayMs > 0 ? item.delayMs : 60_000;
+      cursor += gap;
+    }
+    rebasedIds.set(item.id, cursor);
+  }
+
+  return items.map((item) => {
+    const newScheduledAt = rebasedIds.get(item.id);
+    if (newScheduledAt === undefined) return item;
+    return { ...item, scheduledAt: newScheduledAt };
+  });
+}
+
 function summarize(schedule) {
   const items = schedule?.items ?? [];
   const counts = items.reduce((accumulator, item) => {
@@ -217,6 +253,12 @@ function recoverSchedule(persistedSchedule, now = Date.now(), verificationPolicy
     return item;
   });
 
+  // Rebase scheduled items whose timestamps are now in the past so the
+  // scheduler does not replay elapsed timestamps in a backlog burst.
+  const beforeRebase = JSON.stringify(recovered.items.map((item) => item.scheduledAt));
+  recovered.items = rebaseScheduledTimeline(recovered.items, now);
+  if (JSON.stringify(recovered.items.map((item) => item.scheduledAt)) !== beforeRebase) changed = true;
+
   const pendingVerification = recovered.items.find((item) => item.status === ITEM_STATUS.VERIFICATION_REQUIRED && item.verificationMeta?.autoContinue && !item.verificationMeta?.exhausted);
   if (pendingVerification) {
     recovered.state = SCHEDULE_STATE.RUNNING;
@@ -233,7 +275,11 @@ function recoverSchedule(persistedSchedule, now = Date.now(), verificationPolicy
 }
 
 function hasTerminalScheduleState(schedule) {
-  return schedule.items.every(isTerminalItem);
+  return schedule.items.every((item) => {
+    if (!isTerminalItem(item)) return false;
+    if (item.status === ITEM_STATUS.COMPLETED && item.verificationMeta && !item.verificationMeta.exhausted && item.verification !== VERIFICATION.VERIFIED) return false;
+    return true;
+  });
 }
 
 function getHeadNonTerminalItem(schedule) {
@@ -250,7 +296,7 @@ function getNextExecutableItem(schedule) {
 
 function getNextVerificationItem(schedule) {
   return schedule.items
-    .filter((item) => item.status === ITEM_STATUS.VERIFICATION_REQUIRED && !item.verificationMeta?.exhausted)
+    .filter((item) => (item.status === ITEM_STATUS.VERIFICATION_REQUIRED || item.status === ITEM_STATUS.COMPLETED) && !item.verificationMeta?.exhausted)
     .sort((left, right) => {
       const leftDue = left.verificationMeta?.nextVerificationAt ?? Number.MAX_SAFE_INTEGER;
       const rightDue = right.verificationMeta?.nextVerificationAt ?? Number.MAX_SAFE_INTEGER;
@@ -412,6 +458,9 @@ function createScheduler({ executor, verifier, persist = () => true, now = () =>
     } else {
       next.state = SCHEDULE_STATE.RUNNING;
       next.resumedAt = now();
+      // Rebase scheduled items whose timestamps are in the past so that
+      // resuming a paused schedule does not replay elapsed timestamps.
+      next.items = rebaseScheduledTimeline(next.items, now());
     }
     next.updatedAt = now();
     const result = await commit(next, previous, generation, { blockOnFailure: true });
@@ -471,6 +520,30 @@ function createScheduler({ executor, verifier, persist = () => true, now = () =>
     return commit(next, previous, expectedGeneration, { blockOnFailure: true });
   }
 
+  async function transitionToCompletedPendingVerification(scheduleId, expectedGeneration, itemId, executionResult) {
+    if (!schedule || schedule.id !== scheduleId || generation !== expectedGeneration) return null;
+    const previous = schedule;
+    const next = clone(schedule);
+    const item = next.items.find((candidate) => candidate.id === itemId);
+    if (!item) return null;
+
+    item.status = ITEM_STATUS.COMPLETED;
+    item.completedAt = now();
+    item.executionToken = null;
+    item.recoveryPending = false;
+    item.verification = VERIFICATION.PENDING;
+    item.verificationMeta = createVerificationMetadata(now(), normalizedVerificationPolicy, {
+      autoContinue: true,
+      reasonCode: 'POST_ACTIVATION_CONFIRMATION',
+    });
+    item.executionResult = executionResult;
+    item.executionContext = executionResult?.context ?? item.executionContext ?? null;
+    item.lastError = null;
+    appendDiagnostic(next, item, { timestamp: now(), phase: 'execution', result: 'success', errorCode: executionResult?.errorCode ?? null });
+    next.updatedAt = now();
+    return commit(next, previous, expectedGeneration, { blockOnFailure: true });
+  }
+
   async function transitionToVerificationRequired(scheduleId, expectedGeneration, itemId, executionResult) {
     if (!schedule || schedule.id !== scheduleId || generation !== expectedGeneration) return null;
     const previous = schedule;
@@ -496,7 +569,7 @@ function createScheduler({ executor, verifier, persist = () => true, now = () =>
 
   async function verifyHead(scheduleId, expectedGeneration, itemId) {
     if (!schedule || schedule.id !== scheduleId || generation !== expectedGeneration) return clone(schedule);
-    const head = schedule.items.find((item) => item.id === itemId && item.status === ITEM_STATUS.VERIFICATION_REQUIRED);
+    const head = schedule.items.find((item) => item.id === itemId && (item.status === ITEM_STATUS.VERIFICATION_REQUIRED || item.status === ITEM_STATUS.COMPLETED));
     if (!head) return clone(schedule);
 
     let verificationResult;
@@ -525,7 +598,7 @@ function createScheduler({ executor, verifier, persist = () => true, now = () =>
     const previous = schedule;
     const next = clone(schedule);
     const item = next.items.find((candidate) => candidate.id === itemId);
-    if (!item || item.status !== ITEM_STATUS.VERIFICATION_REQUIRED) return clone(schedule);
+    if (!item || (item.status !== ITEM_STATUS.VERIFICATION_REQUIRED && item.status !== ITEM_STATUS.COMPLETED)) return clone(schedule);
 
     const verifiedAt = now();
     const metadata = createVerificationMetadata(verifiedAt, normalizedVerificationPolicy, item.verificationMeta);
@@ -543,7 +616,7 @@ function createScheduler({ executor, verifier, persist = () => true, now = () =>
 
     if (verificationResult.verification === VERIFICATION.VERIFIED) {
       item.status = ITEM_STATUS.COMPLETED;
-      item.completedAt = verifiedAt;
+      if (!item.completedAt) item.completedAt = verifiedAt;
       item.recoveryPending = false;
       item.interruptedExecutionToken = null;
       item.verificationMeta = { ...metadata, nextVerificationAt: null, exhausted: false, autoContinue: false, reasonCode: 'CONFIRMED_UNLOCKED' };
@@ -617,7 +690,7 @@ function createScheduler({ executor, verifier, persist = () => true, now = () =>
     if (!schedule) throw new Error('No schedule has been created.');
     if (processing) throw new SchedulerBusyError('Cannot recheck while a scheduler operation is in flight.');
     const head = schedule.items
-      .filter((item) => item.status === ITEM_STATUS.VERIFICATION_REQUIRED)
+      .filter((item) => (item.status === ITEM_STATUS.VERIFICATION_REQUIRED || item.status === ITEM_STATUS.COMPLETED) && item.verificationMeta)
       .sort((left, right) => (left.sequencePosition ?? Number.MAX_SAFE_INTEGER) - (right.sequencePosition ?? Number.MAX_SAFE_INTEGER))[0] ?? null;
     if (!head) {
       throw new Error('No achievement is awaiting verification.');
@@ -716,7 +789,13 @@ function createScheduler({ executor, verifier, persist = () => true, now = () =>
       // require an independent state read before another executor call. In
       // particular, a failed local follow-up may occur after Steam accepted the
       // activation, so treating it as a normal retry could duplicate a real unlock.
-      if (executionResult.outcome === 'success' || executionResult.outcome === 'uncertain') {
+      if (executionResult.outcome === 'success') {
+        await transitionToCompletedPendingVerification(scheduleId, expectedGeneration, itemId, executionResult);
+        if (schedule?.state === SCHEDULE_STATE.RUNNING) return await verifyHead(scheduleId, expectedGeneration, itemId);
+        return clone(schedule);
+      }
+
+      if (executionResult.outcome === 'uncertain') {
         await transitionToVerificationRequired(scheduleId, expectedGeneration, itemId, executionResult);
         if (schedule?.state === SCHEDULE_STATE.RUNNING) return await verifyHead(scheduleId, expectedGeneration, itemId);
         return clone(schedule);
@@ -779,6 +858,7 @@ module.exports = {
   createExecutionContext,
   createSchedule,
   createScheduler,
+  rebaseScheduledTimeline,
   recoverSchedule,
   retryDelayMs,
   summarize,

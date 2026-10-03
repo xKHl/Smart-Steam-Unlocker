@@ -41,7 +41,7 @@ export default function StatusBar({ steamStatus, version }) {
         {version && <span>v{version}</span>}
         {version && <span className="status-divider">·</span>}
         <span>
-          {time.toLocaleTimeString(locale === 'ar' ? 'ar-SA' : 'en-US', { hour: '2-digit', minute: '2-digit' })}
+          {time.toLocaleTimeString(locale === 'ar' ? 'ar-SA-u-nu-latn' : 'en-US', { hour: '2-digit', minute: '2-digit' })}
         </span>
       </div>
     </footer>

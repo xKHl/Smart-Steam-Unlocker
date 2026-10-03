@@ -22,6 +22,7 @@ import {
   INTEGRITY_TIERS,
 } from '../lib/achievementIntegrity.mjs';
 import { useI18n } from '../i18n';
+import { codedError, localizeError } from '../i18n/errors.mjs';
 
 const TIER_ICON = {
   [INTEGRITY_TIERS.NORMAL]: CheckCircle2,
@@ -102,7 +103,7 @@ export default function AchievementIntegrity({ selectedGame }) {
     try {
       const result = await window.steamAPI?.steam.getOwnedGames({ forceRefresh });
       if (!result?.success) {
-        throw new Error(result?.detail || result?.errorCode || 'Steam could not provide the owned-games library.');
+        throw codedError(result, t('integrity.libraryLoadFailed'));
       }
       const games = Array.isArray(result.games) ? result.games : [];
       setLibrary(games);
@@ -114,7 +115,7 @@ export default function AchievementIntegrity({ selectedGame }) {
     } catch (error) {
       setLibrary([]);
       setSelectedAppId(null);
-      setLibraryError(error?.message || 'Steam library data is unavailable.');
+      setLibraryError(localizeError(t, locale, error, 'integrity.libraryUnavailableDetail'));
     } finally {
       setLibraryLoading(false);
     }
@@ -147,7 +148,7 @@ export default function AchievementIntegrity({ selectedGame }) {
         window.steamAPI?.steam.getGlobalAchievementPercentages(game.appId),
       ]);
       if (!achievementResult?.success) {
-        throw new Error(achievementResult?.error || achievementResult?.errorCode || 'Steam did not return achievement data for this game.');
+        throw codedError(achievementResult, t('integrity.noAchievementData'));
       }
       const percentageMap = Object.fromEntries(
         (percentageResult?.success && Array.isArray(percentageResult.percentages) ? percentageResult.percentages : [])
@@ -163,7 +164,7 @@ export default function AchievementIntegrity({ selectedGame }) {
     } catch (error) {
       setAnalysis(null);
       setScannedGame(null);
-      setScanError(error?.message || 'The Integrity scan could not read Steam achievement evidence.');
+      setScanError(localizeError(t, locale, error, 'integrity.scanReadFailed'));
     } finally {
       setScanning(false);
     }
@@ -240,7 +241,7 @@ export default function AchievementIntegrity({ selectedGame }) {
                   {game.headerImage && <img src={game.headerImage} alt="" onError={(event) => { event.currentTarget.style.display = 'none'; }} />}
                   <div><p className="eyebrow">{t('integrity.selectedForScan')}</p><h2>{game.name}</h2><span className="technical-value">{t('integrity.appId', { id: game.appId })}</span><span> · {t('integrity.reportedPlaytime', { time: formatPlaytime(game.playtimeMinutes, t) })}</span></div>
                   <button type="button" className="btn-primary" onClick={scan} disabled={scanning}>
-                    {scanning ? <Loader2 size={15} className="spin" /> : <Activity size={15} />} {scanning ? t('integrity.scanning') : `${t('integrity.scan')} & ${t('integrity.analyze')}`}
+                    {scanning ? <Loader2 size={15} className="spin" /> : <Activity size={15} />} {scanning ? t('integrity.scanning') : t('integrity.scanAnalyze')}
                   </button>
                 </div>
 

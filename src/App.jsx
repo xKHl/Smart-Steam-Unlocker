@@ -10,6 +10,7 @@ import TradingCards from './pages/TradingCards';
 import Settings     from './pages/Settings';
 import AchievementIntegrity from './pages/AchievementIntegrity';
 import { useI18n } from './i18n';
+import { codedError, localizeError } from './i18n/errors.mjs';
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Switching Overlay — shown for ~700ms during app.relaunch() cycle
@@ -41,7 +42,7 @@ function SwitchingOverlay({ game }) {
 // ─────────────────────────────────────────────────────────────────────────────
 
 function AppContent() {
-  const { direction } = useI18n();
+  const { direction, locale, t } = useI18n();
   const navigate = useNavigate();
   const location = useLocation();
   const diagnosticsEnabled = useRef(false);
@@ -139,7 +140,7 @@ function AppContent() {
     setIsSwitching(true);
     try {
       const result = await window.steamAPI?.steam.switchGame(game.appId, game.name, game.headerImage);
-      if (!result?.success) throw new Error('Steam could not prepare the selected game context.');
+      if (!result?.success) throw codedError(result, t('app.switchContextFailed'));
       setSelectedGame(game);
       navigate('/achievements');
     } catch (err) {
@@ -148,11 +149,11 @@ function AppContent() {
       // feedback instead of a silent dead click. The previously selected game
       // is kept as the authoritative selection when the main process rejects
       // a conflicting schedule or runtime-context switch.
-      setSwitchGameError(err?.message ?? 'Could not switch game. Please try again.');
+      setSwitchGameError(localizeError(t, locale, err, 'app.switchGameFailed'));
     } finally {
       setIsSwitching(false);
     }
-  }, [navigate]);
+  }, [locale, navigate, t]);
 
   // ── Manual Reconnect Handler ────────────────────────────────────────────
   const handleSteamReconnect = useCallback(async () => {
@@ -168,13 +169,13 @@ function AppContent() {
     <>
       {isSwitching && <SwitchingOverlay game={selectedGame} />}
 
-      <div className={`app-shell${direction === 'rtl' ? ' app-shell--rtl' : ''}`} style={{ opacity: isSwitching ? 0.4 : 1, transition: 'opacity 300ms' }}>
+      <div className="app-shell" style={{ opacity: isSwitching ? 0.4 : 1, transition: 'opacity 300ms' }}>
         <Header steamStatus={steamStatus} />
 
-        <div className={`app-body${direction === 'rtl' ? ' app-body--rtl' : ''}`}>
+        <div className="app-body">
           <Sidebar steamStatus={steamStatus} selectedGame={selectedGame} version={appVersion} />
 
-          <main className={`main-content${direction === 'rtl' ? ' main-content--rtl' : ''}`}>
+          <main className="main-content">
             <Routes>
               <Route path="/"             element={<Dashboard    steamStatus={steamStatus} selectedGame={selectedGame} onSteamReconnect={handleSteamReconnect} />} />
               <Route path="/library"      element={<Library      selectedGame={selectedGame} onGameSelect={handleGameSelect} switchError={switchGameError} onDismissSwitchError={() => setSwitchGameError(null)} />} />

@@ -52,6 +52,9 @@ contextBridge.exposeInMainWorld('steamAPI', {
     relockAchievement: (appId, achievementId) =>
       ipcRenderer.invoke('steam:relock-achievement', { appId, achievementId }),
 
+    getRelockPending: (appId) =>
+      ipcRenderer.invoke('steam:get-relock-pending', appId ?? null),
+
     onAchievementUnlocked: (cb) => {
       const listener = (_e, achievementId) => cb(achievementId);
       ipcRenderer.on('steam:achievement-unlocked', listener);

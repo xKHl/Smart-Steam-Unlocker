@@ -19,6 +19,7 @@ import {
   TRADING_CARD_SORTS,
 } from '../lib/tradingCardProjection.mjs';
 import { useI18n } from '../i18n';
+import { localizeError } from '../i18n/errors.mjs';
 
 const STATUS_COPY = {
   remaining: { labelKey: 'trading.dropsAvailable', detailKey: 'trading.dropsRemainingDetail', tone: 'good' },
@@ -27,13 +28,13 @@ const STATUS_COPY = {
   'not-applicable': { labelKey: 'trading.noCards', detailKey: 'trading.noCardsDetail', tone: 'muted' },
 };
 
-function formatDuration(totalMs) {
+function formatDuration(totalMs, t) {
   const totalSeconds = Math.max(0, Math.floor((Number(totalMs) || 0) / 1000));
   const hours = Math.floor(totalSeconds / 3600);
   const minutes = Math.floor((totalSeconds % 3600) / 60);
   const seconds = totalSeconds % 60;
-  if (hours) return `${String(hours).padStart(2, '0')}h ${String(minutes).padStart(2, '0')}m`;
-  return `${String(minutes).padStart(2, '0')}m ${String(seconds).padStart(2, '0')}s`;
+  if (hours) return t('scheduler.durationHoursMinutes', { hours: String(hours).padStart(2, '0'), minutes: String(minutes).padStart(2, '0') });
+  return t('scheduler.durationMinutesSeconds', { minutes: String(minutes).padStart(2, '0'), seconds: String(seconds).padStart(2, '0') });
 }
 
 function cardState(game) {
@@ -42,6 +43,15 @@ function cardState(game) {
   if (game?.dropStatus === 'exhausted') return STATUS_COPY.exhausted;
   return STATUS_COPY.unavailable;
 }
+
+const TRADING_FILTER_KEYS = {
+  All: 'trading.filterAll',
+  'With Cards': 'trading.filterWithCards',
+  'Without Cards': 'trading.filterWithoutCards',
+  'Drops Remaining': 'trading.filterDropsRemaining',
+  'Drops Exhausted': 'trading.filterDropsExhausted',
+  'Currently Monitoring': 'trading.filterMonitoring',
+};
 
 function monitorCopy(monitor, t) {
   if (!monitor || monitor.state === 'inactive') return null;
@@ -60,7 +70,7 @@ function SummaryCard({ label, value, tone = 'default' }) {
 }
 
 export default function TradingCards() {
-  const { t } = useI18n();
+  const { locale, t } = useI18n();
   const [library, setLibrary] = useState({ success: null, games: [], summary: null, errorCode: null, cardDataAvailable: false });
   const [monitor, setMonitor] = useState({ state: 'inactive', monitorDurationMs: 0 });
   const [selectedAppId, setSelectedAppId] = useState(null);
@@ -134,7 +144,7 @@ export default function TradingCards() {
       if (result) setMonitor(result);
       await load({ forceRefresh: true });
     } catch (error) {
-      setNotice({ tone: 'error', text: error?.message || t('trading.couldNotComplete') });
+      setNotice({ tone: 'error', text: localizeError(t, locale, error, 'trading.couldNotComplete') });
     } finally {
       setActionBusy(false);
     }
@@ -185,7 +195,7 @@ export default function TradingCards() {
           <div>
             <p className="trading-monitor-kicker">{t('trading.currentMonitor')}</p>
             <strong>{activeMonitorCopy.title}</strong>
-            <span>{t('trading.currentGame', { game: monitor.gameName })} · {t('trading.monitorSession', { duration: formatDuration(monitor.monitorDurationMs) })}</span>
+            <span>{t('trading.currentGame', { game: monitor.gameName })} · {t('trading.monitorSession', { duration: formatDuration(monitor.monitorDurationMs, t) })}</span>
             <small>{activeMonitorCopy.detail}</small>
           </div>
           {monitor.dropStatus === 'remaining' && <b>{t('trading.dropsRemainingDetail', { count: monitor.remainingDrops })}</b>}
@@ -212,7 +222,7 @@ export default function TradingCards() {
               </label>
               <div className="trading-filter-group" role="group" aria-label={t('trading.filters')}>
                 {TRADING_CARD_FILTERS.map((entry) => (
-                  <button key={entry} type="button" className={filter === entry ? 'active' : ''} onClick={() => setFilter(entry)}>{t({ All: 'trading.all', Eligible: 'trading.eligible', Unavailable: 'trading.unavailable' }[entry] || 'trading.all')}</button>
+                  <button key={entry} type="button" className={filter === entry ? 'active' : ''} onClick={() => setFilter(entry)}>{t(TRADING_FILTER_KEYS[entry] || 'trading.filterAll')}</button>
                 ))}
               </div>
               <select value={sort} onChange={(event) => setSort(event.target.value)} aria-label={t('trading.sort')}>
@@ -267,7 +277,7 @@ export default function TradingCards() {
                   {selectedIsMonitored && (
                     <div className="trading-session-detail">
                       <span><Clock3 size={15} /> {t('trading.monitorSessionLabel')}</span>
-                      <strong>{formatDuration(monitor.monitorDurationMs)}</strong>
+                      <strong>{formatDuration(monitor.monitorDurationMs, t)}</strong>
                       <small>{t('trading.runningUnconfirmed')}</small>
                     </div>
                   )}

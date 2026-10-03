@@ -11,12 +11,18 @@ import {
 } from '../lib/achievementBulkSelection.mjs';
 import { projectExecutionAchievements } from '../lib/executionAchievementPayload.mjs';
 import { useI18n } from '../i18n';
+import { codedError, localizeError } from '../i18n/errors.mjs';
 
 const FILTERS = [
   { value: 'All', key: 'achievements.filters.all' },
   { value: 'Locked', key: 'achievements.filters.locked' },
   { value: 'Unlocked', key: 'achievements.filters.unlocked' },
 ];
+
+const ORDER_FALLBACK_KEYS = {
+  GLOBAL_PERCENTAGES_UNAVAILABLE: 'achievements.orderFallbackRarity',
+  PROGRESSION_METADATA_UNAVAILABLE: 'achievements.orderFallbackStory',
+};
 
 const HUMANIZED_ORDER_LABELS = {
   original: 'mode.original',
@@ -36,7 +42,7 @@ function formatTime(seconds) {
  * Achievements — Achievement browser page with Smart Delay Timer
  */
 export default function Achievements({ selectedGame, onChangeGame }) {
-  const { t } = useI18n();
+  const { locale, t } = useI18n();
   // ── UI State ────────────────────────────────────────────────────────────
   const [search, setSearch] = useState('');
   const [filter, setFilter] = useState('All');
@@ -96,12 +102,12 @@ export default function Achievements({ selectedGame, onChangeGame }) {
           setAchievements(merged);
         } else {
           setAchievements([]);
-          setLoadError(achRes?.error || 'Steam could not return achievement data for this game.');
+          setLoadError(localizeError(t, locale, achRes, 'achievements.loadErrorGame'));
         }
       } catch {
         if (active) {
           setAchievements([]);
-          setLoadError('Could not load achievements. Check the Steam connection and try again.');
+          setLoadError(t('achievements.loadErrorGeneric'));
         }
       } finally {
         if (active) setIsLoading(false);
@@ -143,6 +149,24 @@ export default function Achievements({ selectedGame, onChangeGame }) {
       )));
       setRelockStates((previous) => ({ ...previous, [achievementId]: 'verified' }));
     });
+
+    // Restore any pending relock verification states persisted by the backend
+    // tracker. This ensures 'verification-pending' indicators survive page
+    // navigation and app restart.
+    if (selectedGame?.appId) {
+      window.steamAPI?.steam.getRelockPending?.(selectedGame.appId).then((pending) => {
+        if (!active || !pending) return;
+        const restoredStates = {};
+        for (const [id, entry] of Object.entries(pending)) {
+          if (entry.state === 'verification-pending') {
+            restoredStates[id] = 'verification-pending';
+          }
+        }
+        if (Object.keys(restoredStates).length > 0) {
+          setRelockStates((previous) => ({ ...restoredStates, ...previous }));
+        }
+      }).catch(() => { /* Non-fatal — UI still works without restored relock states */ });
+    }
 
     setSelectedIds(new Set());
     return () => {
@@ -300,7 +324,7 @@ export default function Achievements({ selectedGame, onChangeGame }) {
           useFixedTime ? parseFloat(fixedMins) : null,
         );
         if (!nextStatus?.isActive || nextStatus.queue.length !== selectedItems.length) {
-          throw new Error('Instant queue did not start. Your selected achievements are still available.');
+          throw codedError(null, t('achievements.instantNotStarted'));
         }
         setTimerStatus(nextStatus);
         // Only clear selection after the main process has accepted the full queue.
@@ -315,7 +339,7 @@ export default function Achievements({ selectedGame, onChangeGame }) {
         if (nextStatus) setTimerStatus(nextStatus);
       }
     } catch (error) {
-      setInstantError(error?.message || 'Instant queue could not start. Your selection was kept.');
+      setInstantError(localizeError(t, locale, error, 'achievements.instantStartFailed'));
     }
   };
 
@@ -329,7 +353,7 @@ export default function Achievements({ selectedGame, onChangeGame }) {
       const nextStatus = await window.steamAPI?.timer.recheckVerification();
       if (nextStatus) setTimerStatus(nextStatus);
     } catch (error) {
-      setInstantError(error?.message || 'Steam confirmation could not be rechecked.');
+      setInstantError(localizeError(t, locale, error, 'achievements.recheckFailed'));
     }
   };
 
@@ -347,8 +371,17 @@ export default function Achievements({ selectedGame, onChangeGame }) {
     try {
       const result = await window.steamAPI?.steam.relockAchievement(selectedGame.appId, achievement.id);
       if (!result?.success) {
+        if (result.errorCode === 'ACHIEVEMENT_ALREADY_LOCKED') {
+          setAchievements((previous) => previous.map((item) => (
+            item.id === achievement.id ? { ...item, unlocked: false, unlockTime: null, iconUrl: item.iconGrayUrl || item.iconUrl } : item
+          )));
+          setRelockStates((previous) => ({ ...previous, [achievement.id]: 'verified' }));
+          setRelockMessage({ tone: 'warning', text: localizeError(t, locale, result, 'achievements.relockFailedDetail') });
+          return;
+        }
+
         setRelockStates((previous) => ({ ...previous, [achievement.id]: 'failed' }));
-        setRelockMessage({ tone: 'danger', text: result?.error || t('achievements.relockFailedDetail') });
+        setRelockMessage({ tone: 'danger', text: localizeError(t, locale, result, 'achievements.relockFailedDetail') });
         return;
       }
       if (result.state === 'relocked') {
@@ -361,11 +394,11 @@ export default function Achievements({ selectedGame, onChangeGame }) {
         setRelockMessage({ tone: 'success', text: t('achievements.relockVerified') });
       } else {
         setRelockStates((previous) => ({ ...previous, [achievement.id]: 'verification-pending' }));
-        setRelockMessage({ tone: 'warning', text: result.message || t('achievements.relockRemotePending') });
+        setRelockMessage({ tone: 'warning', text: locale === 'en' && result.message ? result.message : t('achievements.relockRemotePending') });
       }
     } catch (error) {
       setRelockStates((previous) => ({ ...previous, [achievement.id]: 'failed' }));
-      setRelockMessage({ tone: 'danger', text: error?.message || t('achievements.relockFailedDetail') });
+      setRelockMessage({ tone: 'danger', text: localizeError(t, locale, error, 'achievements.relockFailedDetail') });
     } finally {
       setRelockDialogAchievement(null);
     }
@@ -451,7 +484,7 @@ export default function Achievements({ selectedGame, onChangeGame }) {
               </h2>
               <div className="timer-actions">
                 {timerStatus.queue.length > 0 && (
-                  <button className="btn-danger" onClick={handleClearQueue} title="Clear Queue">
+                  <button className="btn-danger" onClick={handleClearQueue} title={t('achievements.clearQueue')}>
                     <Trash2 size={14} /> {t('achievements.clearQueue')}
                   </button>
                 )}
@@ -566,7 +599,7 @@ export default function Achievements({ selectedGame, onChangeGame }) {
                     style={{ width: `${(timerStatus.unlockedCount / timerStatus.totalInQueue) * 100}%` }} 
                   />
                 </div>
-                <div style={{ fontSize: 11, color: 'var(--text-muted)', marginTop: 6, textAlign: 'right' }}>
+                <div style={{ fontSize: 11, color: 'var(--text-muted)', marginTop: 6, textAlign: 'end' }}>
                   {timerStatus.unlockedCount} / {timerStatus.totalInQueue} {t('common.completed')}
                 </div>
               </div>
@@ -597,7 +630,7 @@ export default function Achievements({ selectedGame, onChangeGame }) {
               <span>{humanizedOrderError
                 ? humanizedOrderError
                 : selectedOrderingMetadata?.message
-                  ? selectedOrderingMetadata.message
+                  ? (ORDER_FALLBACK_KEYS[selectedOrderingMetadata.reasonCode] ? t(ORDER_FALLBACK_KEYS[selectedOrderingMetadata.reasonCode]) : selectedOrderingMetadata.message)
                   : <>{t('achievements.gridOrder', { mode: t(HUMANIZED_ORDER_LABELS[humanizedOrderMode] || 'mode.original') })}</>}</span>
             </div>
           )}
@@ -627,7 +660,7 @@ export default function Achievements({ selectedGame, onChangeGame }) {
             {visibleLockedIds.length > 0 && (
               <button 
                 className="btn-secondary" 
-                style={{ marginLeft: 8, padding: '5px 12px', fontSize: 12 }}
+                style={{ marginInlineStart: 8, padding: '5px 12px', fontSize: 12 }}
                 onClick={handleSelectAllLocked}
                 title={t('achievements.visibleLockedTooltip')}
               >
@@ -635,7 +668,7 @@ export default function Achievements({ selectedGame, onChangeGame }) {
               </button>
             )}
             {selectedIds.size > 0 && (
-              <div style={{ marginLeft: 'auto', fontSize: 13, color: 'var(--accent-purple)', fontWeight: 600 }}>
+              <div style={{ marginInlineStart: 'auto', fontSize: 13, color: 'var(--accent-purple)', fontWeight: 600 }}>
                 {t('common.selected', { count: selectedIds.size })}
               </div>
             )}

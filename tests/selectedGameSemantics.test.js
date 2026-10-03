@@ -56,8 +56,8 @@ test('selected-game and activity labels remain truthful and independent', () => 
   assert.doesNotMatch(dashboard, /label: 'Last Activity'/);
   assert.doesNotMatch(dashboard, /Steam library data has no reliable last-played timestamp/);
   assert.match(sidebar, /t\('nav\.selectedGame'\)/);
-  assert.match(card, /aria-label="Selected game"/);
-  assert.match(card, />\s*Selected\s*</);
+  assert.match(card, /aria-label=\{t\('nav\.selectedGame'\)\}/);
+  assert.match(card, /\{t\('library\.selected'\)\}/);
   assert.doesNotMatch(steamManager, /rtime_last_played/);
 });
 
@@ -119,7 +119,7 @@ test('author ownership branding is visible in Sidebar and Settings through the t
 
   assert.match(sidebar, /sidebar-credit/);
   assert.match(sidebar, /GitHub<\/button>/);
-  assert.match(sidebar, /Website<\/button>/);
+  assert.match(sidebar, /\{t\('sidebar\.website'\)\}<\/button>/);
   assert.match(settings, /t\('settings\.about'\)/);
   assert.match(settings, /t\('settings\.creator'\)/);
   assert.match(settings, /t\('settings\.repository'\)/);
@@ -171,7 +171,7 @@ test('Library Browse Achievements click surfaces a visible error instead of sile
   const styles = source('src/index.css');
 
   // handleGameSelect must expose the error through state, not only console.error
-  assert.match(app, /setSwitchGameError\(err\?\.message/);
+  assert.match(app, /setSwitchGameError\(localizeError\(t, locale, err,/);
   assert.match(app, /setSwitchGameError\(null\)/);
 
   // Library route must receive the error state and a dismiss callback

@@ -4,6 +4,7 @@ import {
   AlertCircle, ExternalLink, Github, Globe2, ShieldCheck, RefreshCw, Trash2,
 } from 'lucide-react';
 import { useI18n } from '../i18n';
+import { formatNumber } from '../i18n/errors.mjs';
 
 const ERROR_MESSAGES = {
   NO_API_KEY: 'settings.apiKeyNotStored',
@@ -82,7 +83,7 @@ export default function Settings() {
     try {
       const result = await window.steamAPI?.steam.getOwnedGames({ forceRefresh: true });
       if (result?.success) {
-        setTestResult({ ok: true, msg: t('settings.connectionVerified', { count: result.count.toLocaleString(locale === 'ar' ? 'ar-SA' : 'en-US') }) });
+        setTestResult({ ok: true, msg: t('settings.connectionVerified', { count: formatNumber(result.count, locale) }) });
       } else {
         const errorKey = ERROR_MESSAGES[result?.errorCode];
         setTestResult({ ok: false, msg: errorKey ? t(errorKey) : result?.detail ?? t('settings.connectionFailed') });
@@ -189,7 +190,7 @@ export default function Settings() {
       <div className="settings-card">
         <h2 className="settings-section-title" style={{ marginBottom: 16 }}>{t('settings.howTo')}</h2>
         <ol className="settings-steps">
-          <li><span className="step-num">1</span><span>{t('settings.stepOne')} <a href="https://steamcommunity.com/dev/apikey" target="_blank" rel="noreferrer" className="settings-link">steamcommunity.com/dev/apikey <ExternalLink size={11} style={{ display: 'inline', marginLeft: 3, verticalAlign: 'middle' }} /></a></span></li>
+          <li><span className="step-num">1</span><span>{t('settings.stepOne')} <a href="https://steamcommunity.com/dev/apikey" target="_blank" rel="noreferrer" className="settings-link">steamcommunity.com/dev/apikey <ExternalLink size={11} /></a></span></li>
           <li><span className="step-num">2</span><span>{t('settings.stepTwo')}</span></li>
           <li><span className="step-num">3</span><span>{t('settings.stepThree')}</span></li>
           <li><span className="step-num">4</span><span>{t('settings.stepFour')}</span></li>

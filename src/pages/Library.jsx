@@ -7,6 +7,7 @@ import {
 import GameCard from '../components/GameCard';
 import { useNavigate } from 'react-router-dom';
 import { useI18n } from '../i18n';
+import { formatNumber } from '../i18n/errors.mjs';
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Helpers
@@ -170,7 +171,7 @@ export default function Library({ selectedGame, onGameSelect, switchError, onDis
     ? t('library.loadingSubtitle')
     : errorCode
     ? t(errorInfo?.titleKey || 'library.error')
-    : `${t('library.ownedSummary', { count: count.toLocaleString(locale === 'ar' ? 'ar-SA' : 'en-US') })}${totalPlaytimeHours ? ` · ${t('library.totalPlaytime', { hours: totalPlaytimeHours.toLocaleString(locale === 'ar' ? 'ar-SA' : 'en-US') })}` : ''}`;
+    : `${t('library.ownedSummary', { count: formatNumber(count, locale) })}${totalPlaytimeHours ? ` · ${t('library.totalPlaytime', { hours: formatNumber(totalPlaytimeHours, locale) })}` : ''}`;
 
   return (
     <div className="page-container library-page animate-fade-in">
@@ -204,7 +205,7 @@ export default function Library({ selectedGame, onGameSelect, switchError, onDis
               <SlidersHorizontal size={13} color="var(--text-muted)" aria-hidden="true" />
               <select
                 id="select-sort"
-                className="bg-gray-800 text-white border border-gray-700 rounded py-1 px-2 text-xs ml-2 outline-none focus:border-purple-500"
+                className="bg-gray-800 text-white border border-gray-700 rounded py-1 px-2 text-xs outline-none focus:border-purple-500"
                 value={sort}
                 onChange={(e) => setSort(e.target.value)}
                 aria-label={t('library.sortGames')}
@@ -249,24 +250,24 @@ export default function Library({ selectedGame, onGameSelect, switchError, onDis
         <div className="library-stats-strip">
           <div className="lib-stat">
             <LibraryIcon size={13} color="var(--text-muted)" />
-            <span><strong>{count.toLocaleString(locale === 'ar' ? 'ar-SA' : 'en-US')}</strong> {t('library.gamesOwned')}</span>
+            <span><strong>{formatNumber(count, locale)}</strong> {t('library.gamesOwned')}</span>
           </div>
           <div className="lib-stat">
             <Clock size={13} color="var(--text-muted)" />
-            <span><strong>{totalPlaytimeHours.toLocaleString(locale === 'ar' ? 'ar-SA' : 'en-US')}h</strong> {t('library.totalPlaytimeLabel')}</span>
+            <span><strong>{t('common.hoursShort', { hours: formatNumber(totalPlaytimeHours, locale) })}</strong> {t('library.totalPlaytimeLabel')}</span>
           </div>
           <div className="lib-stat">
             <Trophy size={13} color="var(--text-muted)" />
             <span>
               <strong>
-                {games.filter(g => (g.playtimeMinutes ?? 0) > 0).length.toLocaleString()}
+                {formatNumber(games.filter(g => (g.playtimeMinutes ?? 0) > 0).length, locale)}
               </strong>{' '}
               {t('library.played')}
             </span>
           </div>
           {search && (
             <div className="lib-stat lib-stat-filter">
-              <span>{t('library.matching', { count: displayedGames.length.toLocaleString(locale === 'ar' ? 'ar-SA' : 'en-US') })}</span>
+              <span>{t('library.matching', { count: formatNumber(displayedGames.length, locale) })}</span>
             </div>
           )}
         </div>

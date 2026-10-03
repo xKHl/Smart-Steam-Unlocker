@@ -1,10 +1,12 @@
 import React, { useState } from 'react';
 import { Gamepad2, Trophy, Clock } from 'lucide-react';
+import { useI18n } from '../i18n';
+import { formatNumber } from '../i18n/errors.mjs';
 
-function formatPlaytime(minutes) {
+function formatPlaytime(minutes, t, locale) {
   if (!minutes) return null;
-  if (minutes < 60) return `${minutes}m`;
-  return `${parseInt((minutes / 60).toFixed(0)).toLocaleString()}h`;
+  if (minutes < 60) return t('common.minutesShort', { minutes: formatNumber(minutes, locale) });
+  return t('common.hoursShort', { hours: formatNumber(Math.round(minutes / 60), locale) });
 }
 
 /**
@@ -22,7 +24,8 @@ export default function GameCard({ game, onClick, isSelected }) {
   const [imgLoaded, setImgLoaded] = useState(false);
   const [imgError,  setImgError]  = useState(false);
 
-  const playtime = formatPlaytime(game.playtimeMinutes);
+  const { locale, t } = useI18n();
+  const playtime = formatPlaytime(game.playtimeMinutes, t, locale);
 
   return (
     <button
@@ -59,13 +62,13 @@ export default function GameCard({ game, onClick, isSelected }) {
         <div className="game-card-overlay" aria-hidden="true">
           <div className="game-card-overlay-btn">
             <Trophy size={14} />
-            <span>Browse Achievements</span>
+            <span>{t('library.browseAchievements')}</span>
           </div>
         </div>
 
         {/* Playtime badge — top-left */}
         {playtime && (
-          <div className="game-card-playtime" aria-label={`${playtime} played`}>
+          <div className="game-card-playtime" aria-label={t('library.playedAria', { time: playtime })}>
             <Clock size={10} />
             {playtime}
           </div>
@@ -73,8 +76,8 @@ export default function GameCard({ game, onClick, isSelected }) {
 
         {/* Selected-game badge — top-right */}
         {isSelected && (
-          <div className="game-card-selected-badge" aria-label="Selected game">
-            Selected
+          <div className="game-card-selected-badge" aria-label={t('nav.selectedGame')}>
+            {t('library.selected')}
           </div>
         )}
       </div>

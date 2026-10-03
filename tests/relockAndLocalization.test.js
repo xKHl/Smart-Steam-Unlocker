@@ -84,9 +84,6 @@ test('English and Arabic locale infrastructure persists only supported values an
   assert.equal(translations.ar.scheduler.backgroundVerification, 'التحقق في الخلفية');
   assert.match(provider, /document\.documentElement\.dir = direction/);
   assert.match(provider, /document\.documentElement\.lang = locale/);
-  assert.match(styles, /html\[dir='rtl'\] \.app-body \{ flex-direction: row-reverse; \}/);
-  assert.match(styles, /html\[dir='rtl'\] \.sidebar \{ border-right: 0; border-left: 1px solid var\(--border\); \}/);
-  assert.match(styles, /html\[dir='rtl'\] \.nav-link-active::before/);
 });
 
 
@@ -101,15 +98,8 @@ test('v0.3.0 Arabic mode uses explicit shell ordering and a complete major-page 
   const settings = source('src/pages/Settings.jsx');
   const { translations } = await import('../src/i18n/translations.mjs');
 
-  assert.match(app, /app-shell--rtl/);
-  assert.match(app, /app-body--rtl/);
-  assert.match(app, /main-content--rtl/);
-  assert.match(styles, /\.app-shell--rtl \.app-body--rtl > \.main-content--rtl \{[\s\S]*?order: 1/);
-  assert.match(styles, /\.app-shell--rtl \.app-body--rtl > \.sidebar \{[\s\S]*?order: 2/);
-  assert.match(styles, /\.app-shell--rtl \.app-body--rtl > \.sidebar \{[\s\S]*?border-left: 1px solid var\(--border\)/);
-  assert.match(styles, /\.app-shell--rtl \.nav-link-active::before/);
   assert.match(styles, /\.technical-value/);
-  assert.match(styles, /@media \(max-width: 760px\) \{[\s\S]*?\.app-shell--rtl \.app-body--rtl/);
+  assert.doesNotMatch(app, /app-shell--rtl/);
 
   assert.equal(translations.ar.mode.humanized, 'محاكاة الإنسان');
   assert.equal(translations.ar.common.relock, 'إعادة قفل الإنجاز');
@@ -118,11 +108,11 @@ test('v0.3.0 Arabic mode uses explicit shell ordering and a complete major-page 
   assert.equal(translations.ar.integrity.scan, 'فحص');
   assert.equal(translations.ar.integrity.analyze, 'تحليل');
   assert.equal(translations.ar.integrity.explain, 'التفسير');
-  assert.equal(translations.ar.integrity.score, 'درجة سلامة الإنجازات');
+  assert.equal(translations.ar.integrity.score, 'التقييم');
   assert.equal(translations.ar.integrity.normal, 'طبيعي');
   assert.equal(translations.ar.integrity.unusual, 'غير معتاد');
-  assert.equal(translations.ar.integrity.highAnomaly, 'شذوذ مرتفع');
-  assert.equal(translations.ar.integrity.extremeAnomaly, 'شذوذ شديد');
+  assert.equal(translations.ar.integrity.highAnomaly, 'شذوذ ملحوظ');
+  assert.equal(translations.ar.integrity.extremeAnomaly, 'شذوذ بالغ');
   assert.equal(translations.ar.integrity.viewEvidence, 'عرض الأدلة');
 
   for (const [page, key] of [

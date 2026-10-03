@@ -15,6 +15,7 @@ import {
   TrendingUp,
 } from 'lucide-react';
 import { useI18n } from '../i18n';
+import { formatNumber } from '../i18n/errors.mjs';
 
 const DATA_ERROR_COPY = {
   NO_API_KEY: 'library.apiKeyRequired',
@@ -24,14 +25,14 @@ const DATA_ERROR_COPY = {
   FETCH_ERROR: 'dashboard.snapshotUnavailable',
 };
 
-function metricStateValue({ phase, value, unavailableValue = 'Unavailable' }) {
-  if (phase === 'loading') return 'Loading…';
+function metricStateValue({ phase, value, unavailableValue = 'Unavailable', loadingValue = 'Loading…' }) {
+  if (phase === 'loading') return loadingValue;
   if (phase === 'error' || phase === 'unavailable') return unavailableValue;
   return value;
 }
 
-function formatCompletion(unlocked, total) {
-  if (!total) return 'No data';
+function formatCompletion(unlocked, total, noData = 'No data') {
+  if (!total) return noData;
   return `${Math.round((unlocked / total) * 100)}%`;
 }
 
@@ -113,31 +114,31 @@ export default function Dashboard({ steamStatus, selectedGame, onSteamReconnect 
     return [
       {
         id: 'stat-games', icon: Gamepad2, label: t('dashboard.ownedGames'), color: 'purple',
-        value: metricStateValue({ phase, value: overview.games.length.toLocaleString(locale === 'ar' ? 'ar-SA' : 'en-US'), unavailableValue: t('dashboard.unavailable') }),
+        value: metricStateValue({ phase, value: formatNumber(overview.games.length, locale), unavailableValue: t('dashboard.unavailable'), loadingValue: t('common.loading') }),
         sub: phase === 'ready'
           ? overview.games.length ? t('dashboard.fromLibrary') : t('dashboard.noGames')
           : t('dashboard.libraryAvailability'),
       },
       {
         id: 'stat-unlocked', icon: Trophy, label: t('dashboard.achievementsUnlocked'), color: 'blue',
-        value: hasCurrentGameData ? unlocked.toLocaleString(locale === 'ar' ? 'ar-SA' : 'en-US') : metricStateValue({ phase, value: t('dashboard.selectGame'), unavailableValue: t('dashboard.unavailable') }),
+        value: hasCurrentGameData ? formatNumber(unlocked, locale) : metricStateValue({ phase, value: t('dashboard.selectGame'), unavailableValue: t('dashboard.unavailable'), loadingValue: t('common.loading') }),
         sub: hasCurrentGameData ? selectedGame.name : selectedGame ? t('dashboard.achievementUnavailable') : t('dashboard.chooseProgress'),
       },
       {
         id: 'stat-rate', icon: Target, label: t('dashboard.completionRate'), color: 'indigo',
-        value: hasCurrentGameData ? formatCompletion(unlocked, total) : metricStateValue({ phase, value: t('dashboard.selectGame'), unavailableValue: t('dashboard.unavailable') }),
+        value: hasCurrentGameData ? formatCompletion(unlocked, total, t('dashboard.noData')) : metricStateValue({ phase, value: t('dashboard.selectGame'), unavailableValue: t('dashboard.unavailable'), loadingValue: t('common.loading') }),
         sub: hasCurrentGameData ? total ? `${unlocked} / ${total}` : t('dashboard.noAchievementData') : t('dashboard.selectedGameOnly'),
       },
       {
         id: 'stat-activity', icon: TrendingUp, label: t('dashboard.recentActivity'), color: 'violet',
         value: (() => {
-          if (!selectedGame) return metricStateValue({ phase, value: t('dashboard.selectGame'), unavailableValue: t('dashboard.unavailable') });
+          if (!selectedGame) return metricStateValue({ phase, value: t('dashboard.selectGame'), unavailableValue: t('dashboard.unavailable'), loadingValue: t('common.loading') });
           const gameData = overview.games.find(g => String(g.appId) === String(selectedGame.appId));
           const mins = gameData?.playtime2Weeks ?? 0;
           if (mins <= 0) return t('dashboard.noneReported');
           const hrs = Math.floor(mins / 60);
           const rem = mins % 60;
-          return hrs > 0 ? `${hrs}h ${rem}m` : `${rem}m`;
+          return hrs > 0 ? t('common.hoursMinutesShort', { hours: hrs, minutes: rem }) : t('common.minutesShort', { minutes: rem });
         })(),
         sub: (() => {
           if (!selectedGame) return t('dashboard.selectRecent');
@@ -306,7 +307,7 @@ export default function Dashboard({ steamStatus, selectedGame, onSteamReconnect 
                 <button key={game.appId} type="button" onClick={openGameSelection}>
                   <span className="dashboard-snapshot-game-mark"><Gamepad2 size={14} /></span>
                   <span className="dashboard-snapshot-game-name">{game.name}</span>
-                  <span className="dashboard-snapshot-game-meta">{played ? t('dashboard.played', { hours: played.toLocaleString(locale === 'ar' ? 'ar-SA' : 'en-US') }) : t('dashboard.notPlayed')}</span>
+                  <span className="dashboard-snapshot-game-meta">{played ? t('dashboard.played', { hours: formatNumber(played, locale) }) : t('dashboard.notPlayed')}</span>
                   <ChevronRight size={14} className="directional-chevron" />
                 </button>
               );

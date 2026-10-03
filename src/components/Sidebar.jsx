@@ -70,17 +70,17 @@ export default function Sidebar({ steamStatus, selectedGame, version }) {
 
       <div className="sidebar-spacer" aria-hidden="true" />
 
-      <div className="sidebar-credit" aria-label="Project ownership and author links">
+      <div className="sidebar-credit" aria-label={t('sidebar.creditsAria')}>
         <div className="sidebar-credit-heading">
           <span className="sidebar-credit-monogram" aria-hidden="true">KA</span>
           <div>
-            <p className="sidebar-credit-name">Khalid Alotaibi</p>
-            <p className="sidebar-credit-role">Creator · Smart Steam Unlocker</p>
+            <p className="sidebar-credit-name">{t('app.authorName')}</p>
+            <p className="sidebar-credit-role">{t('sidebar.creatorRole')}</p>
           </div>
         </div>
         <div className="sidebar-credit-links">
-          <button type="button" onClick={() => openExternal('https://github.com/xKHl')} aria-label="Open Khalid Alotaibi's GitHub profile in your browser"><Github size={12} /> GitHub</button>
-          <button type="button" onClick={() => openExternal('https://alotaibi.dev')} aria-label="Open Khalid Alotaibi website in your browser"><Globe2 size={12} /> Website</button>
+          <button type="button" onClick={() => openExternal('https://github.com/xKHl')} aria-label={t('sidebar.githubAria')}><Github size={12} /> GitHub</button>
+          <button type="button" onClick={() => openExternal('https://alotaibi.dev')} aria-label={t('sidebar.websiteAria')}><Globe2 size={12} /> {t('sidebar.website')}</button>
         </div>
         <p className="sidebar-credit-copyright">© 2026 Khalid Alotaibi</p>
       </div>

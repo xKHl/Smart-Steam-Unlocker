@@ -213,6 +213,12 @@ function registerIpcHandlers() {
     return steamManager.relockAchievement(achievementId, appId);
   });
 
+  registerHandler('steam:get-relock-pending', (_e, rawAppId) => {
+    const relockTracker = require('../relockTracker');
+    const appId = rawAppId !== undefined && rawAppId !== null ? assertAppId(rawAppId) : null;
+    return relockTracker.getPendingRelocks(appId);
+  });
+
   // ─── Trading Cards (separate Steam launch monitor) ────────────────────────
   registerHandler('trading-cards:get-library', async (_e, options) => {
     const { forceRefresh } = sanitizeOwnedGamesOptions(options);

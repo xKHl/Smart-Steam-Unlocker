@@ -22,6 +22,9 @@ test('successful submission uses calm background-confirmation copy and hides man
     title: 'Unlock submitted',
     detail: 'Confirming with Steam in background…',
     body: 'Steam confirmation continues automatically in the background. You can keep using the app; no action is needed.',
+    titleKey: 'scheduler.unlockSubmitted',
+    detailKey: 'scheduler.verifySubmittedDetail',
+    bodyKey: 'scheduler.verifySubmittedBody',
     showRecheck: false,
     recheckDisabled: true,
   });
