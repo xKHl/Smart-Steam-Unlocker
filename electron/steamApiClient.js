@@ -100,13 +100,18 @@ function createSteamApiClient({ fetchImpl = fetch, timeoutMs = 10_000 } = {}) {
 
     const badges = result.data?.response?.badges;
     if (!Array.isArray(badges)) return readError(STEAM_READ_ERROR.BADGE_STATE_INVALID, 'player-badges');
+    // IPlayerService/GetBadges does not report remaining card drops. A badge
+    // with an appid is still explicit evidence that the app has Trading Cards.
+    const cardBadgeAppIds = [...new Set(badges
+      .map((badge) => Number(badge?.appid))
+      .filter((appId) => Number.isInteger(appId) && appId > 0))];
     const cardBadges = badges.flatMap((badge) => {
       const appId = Number(badge?.appid);
       const remainingDrops = Number(badge?.cards_remaining);
       if (!Number.isInteger(appId) || appId <= 0 || !Number.isInteger(remainingDrops) || remainingDrops < 0) return [];
       return [{ appId, remainingDrops }];
     });
-    return { success: true, endpoint: 'player-badges', badges: cardBadges };
+    return { success: true, endpoint: 'player-badges', badges: cardBadges, cardBadgeAppIds };
   }
 
   return { getPlayerAchievementState, hasSchemaAchievement, getPlayerBadges, requestJson };

@@ -152,7 +152,7 @@ test('Typed badge client returns only explicit app/drop pairs and retains the sh
     }),
   });
   assert.deepEqual(await client.getPlayerBadges({ apiKey: 'abc', steamId: '76561198000000000' }), {
-    success: true, endpoint: 'player-badges', badges: [{ appId: 1, remainingDrops: 2 }, { appId: 2, remainingDrops: 0 }],
+    success: true, endpoint: 'player-badges', badges: [{ appId: 1, remainingDrops: 2 }, { appId: 2, remainingDrops: 0 }], cardBadgeAppIds: [1, 2, 3],
   });
   assert.equal((await client.getPlayerBadges({ apiKey: '', steamId: 'x' })).errorCode, STEAM_READ_ERROR.MISSING_API_KEY);
 });
@@ -174,4 +174,54 @@ test('Trading Cards stays separate from Achievements and uses transparent Steam 
   assert.match(service, /runningEvidence: 'unavailable'/);
   assert.match(handlers, /shell\.openExternal\(`steam:\/\/run\/\$\{appId\}`\)/);
   assert.doesNotMatch(app, /tradingCards.*isSwitching|isSwitching.*tradingCards/);
+});
+
+test('Store metadata requests one app per call with the categories filter, because multi-app appdetails returns HTTP 400', async () => {
+  const urls = [];
+  const client = createStoreMetadataClient({
+    fetchImpl: async (url) => {
+      urls.push(url);
+      const appId = new URL(url).searchParams.get('appids');
+      if (appId.includes(',')) return { ok: false, status: 400 };
+      const body = {
+        8870: { success: true, data: { categories: [{ id: 2 }, { id: 29 }] } },
+        7670: { success: true, data: { categories: [{ id: 2 }] } },
+        5: { success: true, data: [] },
+      }[appId];
+      return { ok: true, status: 200, json: async () => ({ [appId]: body ?? { success: false } }) };
+    },
+  });
+  const result = await client.getTradingCardEligibility([8870, 7670, 5, 6]);
+  assert.ok(urls.every((url) => !new URL(url).searchParams.get('appids').includes(',')));
+  assert.ok(urls.every((url) => new URL(url).searchParams.get('filters') === 'categories'));
+  assert.equal(result.eligibilityByAppId.get(8870), true);
+  assert.equal(result.eligibilityByAppId.get(7670), false);
+  assert.equal(result.eligibilityByAppId.get(5), false);
+  assert.ok(result.unavailableAppIds.has(6));
+});
+
+test('Store metadata stops requesting after Steam rate-limits and leaves the rest unavailable for a later refresh', async () => {
+  let calls = 0;
+  const client = createStoreMetadataClient({
+    concurrency: 1,
+    fetchImpl: async () => { calls += 1; return { ok: false, status: 429 }; },
+  });
+  const result = await client.getTradingCardEligibility([1, 2, 3, 4]);
+  assert.equal(calls, 1);
+  assert.equal(result.rateLimited, true);
+  assert.equal(result.unavailableAppIds.size, 4);
+});
+
+test('A game badge proves Trading Cards even without drop counts, and such games can be launched for monitoring', () => {
+  const [game] = classifyTradingCardLibrary([{ appId: 42, name: 'Badge Game' }], { eligibilityByAppId: new Map(), cardBadgeAppIds: [42] });
+  assert.equal(game.eligibility, CARD_ELIGIBILITY.WITH_CARDS);
+  assert.equal(game.dropStatus, DROP_STATUS.UNAVAILABLE);
+  assert.equal(game.isEligibleForLaunch, true);
+
+  const monitor = startMonitor({ appId: 42, gameName: 'Badge Game', remainingDrops: null, now: 1_000 });
+  assert.equal(monitor.state, MONITOR_STATE.MONITORING);
+  assert.equal(monitor.remainingDrops, null);
+  assert.equal(monitor.dropStatus, DROP_STATUS.UNAVAILABLE);
+  assert.ok(validatePersistedMonitor(monitor));
+  assert.throws(() => startMonitor({ appId: 42, gameName: 'Badge Game', remainingDrops: 0, now: 1_000 }));
 });

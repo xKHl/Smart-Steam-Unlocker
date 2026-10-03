@@ -59,7 +59,8 @@ function monitorDurationMs(monitor, now = Date.now()) {
 
 function startMonitor({ appId, gameName, remainingDrops, now = Date.now() }) {
   if (!Number.isInteger(appId) || appId <= 0 || typeof gameName !== 'string' || !gameName.trim()) throw new Error('A valid game monitor context is required.');
-  if (!Number.isInteger(remainingDrops) || remainingDrops <= 0) throw new Error('Explicit remaining card drops are required to start monitoring.');
+  const knownDrops = Number.isInteger(remainingDrops) && remainingDrops > 0;
+  if (remainingDrops !== null && remainingDrops !== undefined && !knownDrops) throw new Error('Remaining card drops must be a positive count when provided.');
   return {
     version: STATE_VERSION,
     state: MONITOR_STATE.MONITORING,
@@ -70,8 +71,8 @@ function startMonitor({ appId, gameName, remainingDrops, now = Date.now() }) {
     pausedAt: null,
     pausedDurationMs: 0,
     lastObservedAt: now,
-    remainingDrops,
-    dropStatus: DROP_STATUS.REMAINING,
+    remainingDrops: knownDrops ? remainingDrops : null,
+    dropStatus: knownDrops ? DROP_STATUS.REMAINING : DROP_STATUS.UNAVAILABLE,
     recovered: false,
     confirmedRunning: false,
   };

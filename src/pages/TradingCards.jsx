@@ -24,6 +24,7 @@ import { localizeError } from '../i18n/errors.mjs';
 const STATUS_COPY = {
   remaining: { labelKey: 'trading.dropsAvailable', detailKey: 'trading.dropsRemainingDetail', tone: 'good' },
   exhausted: { labelKey: 'trading.dropsExhausted', detailKey: 'trading.exhaustedDetail', tone: 'muted' },
+  'cards-unknown-drops': { labelKey: 'trading.hasCards', detailKey: 'trading.dropsUnknownDetail', tone: 'good' },
   unavailable: { labelKey: 'trading.statusUnavailable', detailKey: 'trading.unavailableDetail', tone: 'muted' },
   'not-applicable': { labelKey: 'trading.noCards', detailKey: 'trading.noCardsDetail', tone: 'muted' },
 };
@@ -41,6 +42,7 @@ function cardState(game) {
   if (game?.eligibility === 'no-cards') return STATUS_COPY['not-applicable'];
   if (game?.dropStatus === 'remaining') return STATUS_COPY.remaining;
   if (game?.dropStatus === 'exhausted') return STATUS_COPY.exhausted;
+  if (game?.eligibility === 'with-cards') return STATUS_COPY['cards-unknown-drops'];
   return STATUS_COPY.unavailable;
 }
 
@@ -186,8 +188,8 @@ export default function TradingCards() {
       <div className="trading-summary-grid" aria-label={t('trading.summary')}>
         <SummaryCard label={t('trading.gamesWithCards')} value={summary.withCards} tone="purple" />
         <SummaryCard label={t('trading.gamesWithoutCards')} value={summary.withoutCards} />
-        <SummaryCard label={t('trading.dropsRemaining')} value={summary.dropsRemaining} tone="green" />
-        <SummaryCard label={t('trading.dropsExhausted')} value={summary.dropsExhausted} />
+        <SummaryCard label={t('trading.dropsRemaining')} value={library.cardDataAvailable ? summary.dropsRemaining : '—'} tone="green" />
+        <SummaryCard label={t('trading.dropsExhausted')} value={library.cardDataAvailable ? summary.dropsExhausted : '—'} />
       </div>
 
       {activeMonitorCopy && (
@@ -261,7 +263,8 @@ export default function TradingCards() {
               <div className="trading-details-empty"><CreditCard size={24} /><p>{t('trading.selectGame')}</p></div>
             ) : (() => {
               const state = cardState(selectedGame);
-              const canStart = selectedGame.eligibility === 'with-cards' && selectedGame.dropStatus === 'remaining' && !selectedIsMonitored && monitor.state === 'inactive';
+              const canLaunch = selectedGame.eligibility === 'with-cards' && selectedGame.dropStatus !== 'exhausted';
+              const canStart = canLaunch && !selectedIsMonitored && monitor.state === 'inactive';
               return (
                 <>
                   <img className="trading-details-image" src={selectedGame.headerImage} alt="" onError={(event) => { event.currentTarget.style.display = 'none'; }} />
@@ -286,7 +289,7 @@ export default function TradingCards() {
                     {canStart && <button className="btn-primary" type="button" disabled={actionBusy} onClick={startMonitor}><Play size={15} /> {t('trading.requestLaunch')}</button>}
                     {selectedIsMonitored && ['monitoring', 'paused'].includes(monitor.state) && <button className="btn-secondary" type="button" disabled={actionBusy} onClick={pauseOrResume}>{monitor.state === 'paused' ? <Play size={15} /> : <Pause size={15} />} {monitor.state === 'paused' ? t('trading.resumeMonitoring') : t('trading.pauseMonitoring')}</button>}
                     {selectedIsMonitored && monitor.state !== 'inactive' && <button className="btn-danger" type="button" disabled={actionBusy} onClick={stopMonitor}><Square size={15} /> {t('trading.stopMonitoring')}</button>}
-                    {!canStart && !selectedIsMonitored && selectedGame.dropStatus === 'remaining' && monitor.state !== 'inactive' && <div className="trading-limit-note">{t('trading.oneMonitor')}</div>}
+                    {!canStart && !selectedIsMonitored && canLaunch && monitor.state !== 'inactive' && <div className="trading-limit-note">{t('trading.oneMonitor')}</div>}
                   </div>
 
                   <div className="trading-truth-note"><ExternalLink size={14} /> {t('trading.truthNote')}</div>

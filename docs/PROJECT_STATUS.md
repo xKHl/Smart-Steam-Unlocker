@@ -4,7 +4,7 @@
 
 | Field | Current value |
 |---|---|
-| Current version | **0.3.0** |
+| Current version | **0.3.2** |
 | Active development branch | [`feature/humanized-scheduler`](https://github.com/xKHl/Smart-Steam-Unlocker/tree/feature/humanized-scheduler) |
 | Default branch | `main` |
 | Current development commit at handover preparation start | `a9a85ed` — `feat: deliver v0.3.0 Arabic RTL localization` |
@@ -12,6 +12,13 @@
 | Repository | [xKHl/Smart-Steam-Unlocker](https://github.com/xKHl/Smart-Steam-Unlocker) |
 
 This document is the **current-state record**. Historical documents in `docs/` are retained as evidence and research; they are not a replacement for this status record.
+
+## Recent releases
+
+| Version | Changes |
+|---|---|
+| **0.3.2** | Trading Cards: Store eligibility is requested one app at a time (multi-app `appdetails` calls return HTTP 400, which made every game show as unavailable), cached for a week, and stops on HTTP 429. Game badges count as Trading Card evidence. `GetBadges` never reports remaining drops, so drop counts show as unknown instead of 0 and games with cards can be launched for monitoring. |
+| **0.3.1** | Background relock verification tracker, Humanized resume fixes, full Arabic catalog rework, hardcoded English routed through i18n, broken logical CSS repaired, Settings/Library sections styled, Trading Card filter labels fixed. |
 
 ## IMPLEMENTED
 

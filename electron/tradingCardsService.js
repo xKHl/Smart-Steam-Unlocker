@@ -21,6 +21,8 @@ const {
 } = require('./tradingCards/monitorState');
 
 const STORAGE_KEY = 'tradingCardMonitorState';
+const STORE_CACHE_KEY = 'tradingCardStoreEligibility';
+const STORE_CACHE_TTL_MS = 7 * 24 * 60 * 60 * 1000;
 const LIBRARY_CACHE_TTL_MS = 5 * 60 * 1000;
 const MONITOR_REFRESH_MS = 2 * 60 * 1000;
 
@@ -28,7 +30,7 @@ const storeMetadataClient = createStoreMetadataClient();
 let monitor = inactiveMonitor();
 let libraryCache = null;
 let libraryCacheAt = 0;
-let storeEligibilityCache = new Map();
+let storeEligibilityCache = null;
 let refreshTimer = null;
 let inFlightRefresh = null;
 
@@ -80,6 +82,29 @@ async function resolveSteamIdentity() {
   return steamStatus?.steamId ? steamStatus : null;
 }
 
+// Store eligibility rarely changes, and large libraries need one request per
+// app, so explicit answers are persisted for a week across restarts.
+function loadStoreCache() {
+  if (storeEligibilityCache) return storeEligibilityCache;
+  storeEligibilityCache = new Map();
+  const persisted = settingsStore.get(STORE_CACHE_KEY);
+  if (persisted && typeof persisted === 'object' && Date.now() - Number(persisted.savedAt) < STORE_CACHE_TTL_MS) {
+    Object.entries(persisted.entries || {}).forEach(([appId, eligible]) => {
+      if (Number(appId) > 0 && typeof eligible === 'boolean') storeEligibilityCache.set(Number(appId), eligible);
+    });
+  }
+  return storeEligibilityCache;
+}
+
+function saveStoreCache() {
+  const entries = Object.fromEntries([...storeEligibilityCache.entries()].map(([appId, eligible]) => [String(appId), eligible]));
+  try {
+    settingsStore.set(STORE_CACHE_KEY, { savedAt: Date.now(), entries });
+  } catch {
+    // The in-memory cache still serves this session.
+  }
+}
+
 async function getLibrary({ forceRefresh = false } = {}) {
   if (!forceRefresh && libraryCache && Date.now() - libraryCacheAt < LIBRARY_CACHE_TTL_MS) return clone(libraryCache);
 
@@ -99,21 +124,26 @@ async function getLibrary({ forceRefresh = false } = {}) {
       steamManager.getOwnedGames(apiKey, steamStatus.steamId),
       steamManager.getTradingCardBadges(apiKey, steamStatus.steamId),
     ]);
+    loadStoreCache();
     const unknownStoreEligibility = ownedGames
       .map((game) => Number(game.appId))
       .filter((appId) => Number.isInteger(appId) && appId > 0 && !storeEligibilityCache.has(appId));
     if (unknownStoreEligibility.length) {
       const storeResult = await storeMetadataClient.getTradingCardEligibility(unknownStoreEligibility);
       storeResult.eligibilityByAppId.forEach((eligible, appId) => storeEligibilityCache.set(appId, eligible));
+      if (storeResult.eligibilityByAppId.size) saveStoreCache();
     }
     const games = classifyTradingCardLibrary(ownedGames, {
       eligibilityByAppId: storeEligibilityCache,
       badgeRecords: badgeResult.success ? badgeResult.badges : [],
+      cardBadgeAppIds: badgeResult.success ? badgeResult.cardBadgeAppIds : [],
     });
+    // Drop counts exist only when Steam explicitly returned them; the Web API
+    // badge endpoint normally does not, so the UI must not show zeros as facts.
     const result = {
       success: true,
       errorCode: badgeResult.success ? null : badgeResult.errorCode,
-      cardDataAvailable: badgeResult.success,
+      cardDataAvailable: badgeResult.success && Array.isArray(badgeResult.badges) && badgeResult.badges.length > 0,
       games,
       summary: summarizeTradingCardLibrary(games),
       refreshedAt: Date.now(),
@@ -170,8 +200,8 @@ async function start({ appId, launchGame }) {
   const library = await getLibrary({ forceRefresh: true });
   if (!library.success) throw Object.assign(new Error('Trading Card data is unavailable. Refresh and try again.'), { code: library.errorCode || 'CARD_DATA_UNAVAILABLE' });
   const game = library.games.find((entry) => Number(entry.appId) === Number(appId));
-  if (!game || game.eligibility !== CARD_ELIGIBILITY.WITH_CARDS || game.dropStatus !== DROP_STATUS.REMAINING) {
-    throw Object.assign(new Error('Steam has not confirmed remaining Trading Card drops for this game.'), { code: 'CARD_DROPS_NOT_AVAILABLE' });
+  if (!game || game.eligibility !== CARD_ELIGIBILITY.WITH_CARDS || game.dropStatus === DROP_STATUS.EXHAUSTED) {
+    throw Object.assign(new Error('Steam has not confirmed Trading Cards with drops left for this game.'), { code: 'CARD_DROPS_NOT_AVAILABLE' });
   }
 
   await launchGame(appId);

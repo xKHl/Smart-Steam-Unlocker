@@ -50,14 +50,14 @@ function normalizeBadgeRecords(records) {
   return byAppId;
 }
 
-function classifyTradingCardGame(game, { storeEligibility = null, badgeRemainingDrops = null } = {}) {
+function classifyTradingCardGame(game, { storeEligibility = null, badgeRemainingDrops = null, hasCardBadge = false } = {}) {
   const appId = normalizeAppId(game?.appId ?? game?.appid);
   const hasCards = normalizeStoreEligibility(storeEligibility);
   const remainingDrops = normalizeRemainingDrops(badgeRemainingDrops);
 
   // A positive or zero badge count is account-scoped evidence that this app has
   // a card badge. It is stronger than an unavailable Store response.
-  const eligibility = hasCards === true || remainingDrops !== null
+  const eligibility = hasCards === true || remainingDrops !== null || hasCardBadge === true
     ? CARD_ELIGIBILITY.WITH_CARDS
     : hasCards === false
       ? CARD_ELIGIBILITY.NO_CARDS
@@ -74,12 +74,15 @@ function classifyTradingCardGame(game, { storeEligibility = null, badgeRemaining
     eligibility,
     dropStatus,
     remainingDrops: dropStatus === DROP_STATUS.REMAINING ? remainingDrops : null,
-    isEligibleForLaunch: eligibility === CARD_ELIGIBILITY.WITH_CARDS && dropStatus === DROP_STATUS.REMAINING,
+    // Remaining drops are usually unknown (the Web API does not report them),
+    // so any game with cards may be launched unless Steam reported zero left.
+    isEligibleForLaunch: eligibility === CARD_ELIGIBILITY.WITH_CARDS && dropStatus !== DROP_STATUS.EXHAUSTED,
   };
 }
 
-function classifyTradingCardLibrary(games, { eligibilityByAppId = new Map(), badgeRecords = [] } = {}) {
+function classifyTradingCardLibrary(games, { eligibilityByAppId = new Map(), badgeRecords = [], cardBadgeAppIds = [] } = {}) {
   const badgesByAppId = normalizeBadgeRecords(badgeRecords);
+  const badgeAppIds = new Set((Array.isArray(cardBadgeAppIds) ? cardBadgeAppIds : []).map(normalizeAppId).filter(Boolean));
   const source = Array.isArray(games) ? games : [];
   const seen = new Set();
 
@@ -91,6 +94,7 @@ function classifyTradingCardLibrary(games, { eligibilityByAppId = new Map(), bad
       const classification = classifyTradingCardGame(game, {
         storeEligibility: eligibilityByAppId instanceof Map ? eligibilityByAppId.get(appId) : eligibilityByAppId?.[appId],
         badgeRemainingDrops: badgesByAppId.get(appId),
+        hasCardBadge: badgeAppIds.has(appId),
       });
       return { ...game, ...classification };
     })
