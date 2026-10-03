@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { Minus, Square, X, Trophy } from 'lucide-react';
+import { useI18n } from '../i18n';
 
 /**
  * Header — Custom frameless titlebar.
@@ -12,6 +13,7 @@ import { Minus, Square, X, Trophy } from 'lucide-react';
  *   onClick → window.steamAPI.window.* → ipcRenderer.send → ipcMain.on → BrowserWindow API
  */
 export default function Header({ steamStatus }) {
+  const { t } = useI18n();
   const [isMaximized, setIsMaximized] = useState(false);
 
   useEffect(() => {
@@ -36,10 +38,10 @@ export default function Header({ steamStatus }) {
           <Trophy size={14} color="#fff" />
         </div>
 
-        <span className="app-title">Smart Steam Unlocker</span>
+        <span className="app-title">{t('app.name')}</span>
 
         {steamStatus.connected && steamStatus.playerName && (
-          <span className="player-badge" title={`Steam ID: ${steamStatus.steamId ?? '—'}`}>
+          <span className="player-badge" title={t('app.steamId', { id: steamStatus.steamId ?? '—' })}>
             <span className="player-dot" />
             {steamStatus.playerName}
           </span>
@@ -50,13 +52,13 @@ export default function Header({ steamStatus }) {
       <div className="titlebar-center" />
 
       {/* ── Right: Window Controls ────────────────────────────────────────── */}
-      <div className="window-controls no-drag" role="group" aria-label="Window controls">
+      <div className="window-controls no-drag" role="group" aria-label={t('app.windowControls')}>
         <button
           id="btn-window-minimize"
           className="wc-btn wc-minimize"
           onClick={handleMinimize}
-          title="Minimize"
-          aria-label="Minimize window"
+          title={t('app.minimize')}
+          aria-label={t('app.minimize')}
         >
           <Minus size={12} />
         </button>
@@ -65,8 +67,8 @@ export default function Header({ steamStatus }) {
           id="btn-window-maximize"
           className="wc-btn wc-maximize"
           onClick={handleMaximize}
-          title={isMaximized ? 'Restore' : 'Maximize'}
-          aria-label={isMaximized ? 'Restore window' : 'Maximize window'}
+          title={isMaximized ? t('app.restore') : t('app.maximize')}
+          aria-label={isMaximized ? t('app.restore') : t('app.maximize')}
         >
           <Square size={11} />
         </button>
@@ -75,8 +77,8 @@ export default function Header({ steamStatus }) {
           id="btn-window-close"
           className="wc-btn wc-close"
           onClick={handleClose}
-          title="Close"
-          aria-label="Close window"
+          title={t('app.close')}
+          aria-label={t('app.close')}
         >
           <X size={12} />
         </button>

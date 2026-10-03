@@ -1,7 +1,9 @@
 import React, { useState } from 'react';
-import { Lock, Unlock, Check, EyeOff, BarChart2 } from 'lucide-react';
+import { Lock, Unlock, Check, EyeOff, BarChart2, RotateCcw, Loader2 } from 'lucide-react';
+import { useI18n } from '../i18n';
 
-export default function AchievementCard({ achievement, isSelected, onToggleSelect, inQueue, queueIndex }) {
+export default function AchievementCard({ achievement, isSelected, onToggleSelect, inQueue, queueIndex, onRelock, relockState = null }) {
+  const { t } = useI18n();
   const { id, name, description, unlocked, hidden, globalPercent, iconUrl } = achievement;
   const [imgError, setImgError] = useState(false);
 
@@ -48,7 +50,7 @@ export default function AchievementCard({ achievement, isSelected, onToggleSelec
       <div className="achievement-info">
         <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
           <p className="achievement-name">{name || id}</p>
-          {hidden && <EyeOff size={12} color="#94a3b8" title="Hidden Achievement" />}
+          {hidden && <EyeOff size={12} color="#94a3b8" title={t('common.hiddenAchievement')} />}
           {typeof globalPercent === 'number' && (
             <span className={`badge ${globalPercent < 10 ? 'badge-orange' : 'badge-green'}`} style={{ padding: '1px 6px', fontSize: 10, display: 'flex', alignItems: 'center', gap: 4 }}>
               <BarChart2 size={10} />
@@ -57,7 +59,7 @@ export default function AchievementCard({ achievement, isSelected, onToggleSelec
           )}
         </div>
         <p className="achievement-desc">
-          {description || (hidden && !unlocked ? 'Hidden achievement.' : 'No description available.')}
+          {description || (hidden && !unlocked ? t('common.hiddenAchievement') : t('common.noDescription'))}
         </p>
       </div>
 
@@ -74,9 +76,25 @@ export default function AchievementCard({ achievement, isSelected, onToggleSelec
         </div>
       )}
 
+      {unlocked && (
+        <div className="achievement-relock-control" onClick={(event) => event.stopPropagation()}>
+          <button
+            type="button"
+            className="btn-secondary achievement-relock-button"
+            onClick={() => onRelock?.(achievement)}
+            disabled={relockState === 'requested' || relockState === 'verification-pending'}
+            aria-label={t('achievements.relockAria', { achievement: name || id })}
+            title={t('achievements.relockTooltip')}
+          >
+            {relockState === 'requested' ? <Loader2 size={13} className="spin" /> : <RotateCcw size={13} />}
+            {relockState === 'requested' ? t('achievements.relockRequested') : relockState === 'verification-pending' ? t('achievements.relockPending') : t('common.relock')}
+          </button>
+        </div>
+      )}
+
       {inQueue && (
         <div className="achievement-in-queue-badge">
-          {queueIndex > 0 ? `#${queueIndex} - ` : ''}In Queue
+          {queueIndex > 0 ? `#${queueIndex} - ` : ''}{t('common.inQueue')}
         </div>
       )}
     </div>
