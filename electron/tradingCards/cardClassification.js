@@ -120,6 +120,7 @@ function summarizeTradingCardLibrary(games) {
     dropsRemaining: 0,
     dropsExhausted: 0,
     unavailable: 0,
+    totalRemainingDrops: 0,
   };
 
   (Array.isArray(games) ? games : []).forEach((game) => {
@@ -127,7 +128,10 @@ function summarizeTradingCardLibrary(games) {
     if (game?.eligibility === CARD_ELIGIBILITY.WITH_CARDS) summary.withCards += 1;
     if (game?.eligibility === CARD_ELIGIBILITY.NO_CARDS) summary.withoutCards += 1;
     if (game?.eligibility === CARD_ELIGIBILITY.UNAVAILABLE) summary.unavailable += 1;
-    if (game?.dropStatus === DROP_STATUS.REMAINING) summary.dropsRemaining += 1;
+    if (game?.dropStatus === DROP_STATUS.REMAINING) {
+      summary.dropsRemaining += 1;
+      if (Number.isInteger(game.remainingDrops) && game.remainingDrops > 0) summary.totalRemainingDrops += game.remainingDrops;
+    }
     if (game?.dropStatus === DROP_STATUS.EXHAUSTED) summary.dropsExhausted += 1;
   });
 

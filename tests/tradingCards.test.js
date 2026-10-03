@@ -61,7 +61,7 @@ test('Trading Card library summary counts only classified Steam evidence and de-
 
   assert.equal(games.length, 4);
   assert.deepEqual(summarizeTradingCardLibrary(games), {
-    totalGames: 4, withCards: 2, withoutCards: 1, dropsRemaining: 1, dropsExhausted: 1, unavailable: 1,
+    totalGames: 4, withCards: 2, withoutCards: 1, dropsRemaining: 1, dropsExhausted: 1, unavailable: 1, totalRemainingDrops: 2,
   });
 });
 

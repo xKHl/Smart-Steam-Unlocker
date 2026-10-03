@@ -62,13 +62,19 @@ function monitorCopy(monitor, t) {
   return { title: t('trading.launchMonitoring'), detail: t('trading.launchMonitoringDetail'), tone: 'active' };
 }
 
-function SummaryCard({ label, value, tone = 'default' }) {
+function SummaryCard({ label, value, unit = '', tone = 'default' }) {
   return (
     <div className={`trading-summary-card ${tone}`}>
       <span>{label}</span>
-      <strong>{value}</strong>
+      <strong>{value}{unit && <em>{unit}</em>}</strong>
     </div>
   );
+}
+
+// Arabic counted nouns: 3–10 take the plural, everything else the singular.
+function countedUnit(t, locale, count, singularKey, pluralKey) {
+  if (locale === 'ar') return t(count >= 3 && count <= 10 ? pluralKey : singularKey);
+  return t(count === 1 ? singularKey : pluralKey);
 }
 
 export default function TradingCards() {
@@ -275,10 +281,18 @@ export default function TradingCards() {
       </header>
 
       <div className="trading-summary-grid" aria-label={t('trading.summary')}>
-        <SummaryCard label={t('trading.gamesWithCards')} value={summary.withCards} tone="purple" />
-        <SummaryCard label={t('trading.gamesWithoutCards')} value={summary.withoutCards} />
-        <SummaryCard label={t('trading.dropsRemaining')} value={library.cardDataAvailable ? summary.dropsRemaining : '—'} tone="green" />
-        <SummaryCard label={t('trading.dropsExhausted')} value={library.cardDataAvailable ? summary.dropsExhausted : '—'} />
+        <SummaryCard
+          label={t('trading.summaryGamesLeft')}
+          value={library.cardDataAvailable ? summary.dropsRemaining : '—'}
+          unit={library.cardDataAvailable ? countedUnit(t, locale, summary.dropsRemaining, 'trading.unitGame', 'trading.unitGames') : ''}
+          tone="purple"
+        />
+        <SummaryCard
+          label={t('trading.summaryCardsLeft')}
+          value={library.cardDataAvailable ? summary.totalRemainingDrops : '—'}
+          unit={library.cardDataAvailable ? countedUnit(t, locale, summary.totalRemainingDrops, 'trading.unitCard', 'trading.unitCards') : ''}
+          tone="green"
+        />
       </div>
 
       {library.success && library.community?.connected && (

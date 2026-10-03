@@ -4,7 +4,7 @@
 
 | Field | Current value |
 |---|---|
-| Current version | **0.3.5** |
+| Current version | **0.3.6** |
 | Active development branch | [`feature/humanized-scheduler`](https://github.com/xKHl/Smart-Steam-Unlocker/tree/feature/humanized-scheduler) |
 | Default branch | `main` |
 | Current development commit at handover preparation start | `a9a85ed` — `feat: deliver v0.3.0 Arabic RTL localization` |
@@ -17,6 +17,7 @@ This document is the **current-state record**. Historical documents in `docs/` a
 
 | Version | Changes |
 |---|---|
+| **0.3.6** | Trading Cards summary reduced to two labelled totals: games with cards left and total cards left (with units), replacing the four ambiguous counters. |
 | **0.3.5** | Trading Cards opens on games with drops left (most drops first), shows the remaining-drop count on each card and per-filter counts, and lists the games and counts before idling starts. With a complete badges-page read, games with cards missing from it count as exhausted instead of unknown. |
 | **0.3.4** | Trading Cards: card idling. Games with remaining drops (from the signed-in badges page) run together in the background, one forked Steamworks worker per game (max 30, below Steam's 32-game limit); each stops when Steam reports no drops left, everything stops when the app closes, and idling never overlaps the launch monitor. |
 | **0.3.3** | Trading Cards: optional Steam Community sign-in (Steam's own login page in an isolated, sandboxed `persist:steam-community` partition) reads the owner's badges page for real remaining card drops; signed-out or other-account pages are rejected instead of read as zero. Defines the missing `.btn-primary` style used by Request launch, Scan & Analyze and sign-in. |
