@@ -2908,3 +2908,14 @@ html[lang='ar'] body * {
 .trading-idle-game-stop:hover:not(:disabled) { color: #fca5a5; border-color: rgba(248, 113, 113, 0.35); }
 .trading-idle-note { display: block; color: #858096; font-size: 11px; line-height: 1.5; }
 .trading-idle-list small.is-error { color: #fca5a5; }
+
+/* Trading Cards: remaining-drop count on each game card, filter counts, idle preview. */
+.trading-game-copy { position: relative; }
+.trading-drops-count { display: inline-flex; align-items: baseline; gap: 4px; width: fit-content; margin: 2px 0; padding: 2px 9px; color: #052e16; background: #4ade80; border-radius: 999px; font-size: 15px; font-weight: 800; line-height: 1.3; }
+.trading-drops-count i { font-style: normal; font-size: 10.5px; font-weight: 700; }
+.trading-filter-count { margin-inline-start: 6px; padding: 0 6px; border-radius: 999px; background: rgba(255, 255, 255, 0.08); font-size: 10px; }
+.trading-filter-group button.active .trading-filter-count { background: rgba(255, 255, 255, 0.22); }
+.trading-idle-preview { display: flex; flex-wrap: wrap; gap: 6px; margin: 10px 0 0; padding: 0; list-style: none; }
+.trading-idle-preview li { display: inline-flex; align-items: center; gap: 7px; padding: 4px 6px 4px 10px; border: 1px solid #2a2735; border-radius: 999px; background: #17161e; font-size: 11.5px; }
+.trading-idle-preview strong { color: #ded9e9; font-weight: 600; }
+.trading-idle-preview b { min-width: 20px; padding: 1px 7px; color: #052e16; background: #4ade80; border-radius: 999px; text-align: center; font-size: 11px; }

@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   AlertCircle,
   CheckCircle2,
@@ -79,6 +79,9 @@ export default function TradingCards() {
   const [recentAppIds, setRecentAppIds] = useState([]);
   const [filter, setFilter] = useState('All');
   const [sort, setSort] = useState(TRADING_CARD_SORTS.RECENT);
+  const viewChosenByUser = useRef(false);
+  const chooseFilter = (value) => { viewChosenByUser.current = true; setFilter(value); };
+  const chooseSort = (value) => { viewChosenByUser.current = true; setSort(value); };
   const [search, setSearch] = useState('');
   const [loading, setLoading] = useState(true);
   const [actionBusy, setActionBusy] = useState(false);
@@ -95,7 +98,18 @@ export default function TradingCards() {
       setLibrary(result || { success: false, games: [], summary: null, errorCode: 'UNAVAILABLE', cardDataAvailable: false });
       const current = await window.steamAPI?.tradingCards.getStatus();
       if (current) setMonitor(current);
-      if (result?.games?.length) setSelectedAppId((current) => current ?? result.games[0].appId);
+      if (result?.games?.length) {
+        const withDrops = result.games
+          .filter((game) => game.dropStatus === 'remaining')
+          .sort((left, right) => (right.remainingDrops || 0) - (left.remainingDrops || 0));
+        setSelectedAppId((current) => current ?? (withDrops[0] || result.games[0]).appId);
+        // With real drop counts, open on the games that still have cards to
+        // collect, most drops first, unless the user already picked a view.
+        if (!viewChosenByUser.current && withDrops.length) {
+          setFilter('Drops Remaining');
+          setSort(TRADING_CARD_SORTS.DROPS);
+        }
+      }
     } catch {
       setLibrary({ success: false, games: [], summary: null, errorCode: 'UNAVAILABLE', cardDataAvailable: false });
     } finally {
@@ -193,7 +207,16 @@ export default function TradingCards() {
     }
   };
 
-  const idleCandidates = (library.games || []).filter((game) => game.dropStatus === 'remaining' && game.remainingDrops > 0);
+  const idleCandidates = (library.games || [])
+    .filter((game) => game.dropStatus === 'remaining' && game.remainingDrops > 0)
+    .sort((left, right) => right.remainingDrops - left.remainingDrops);
+  const summaryCounts = library.summary || {};
+  const filterCounts = {
+    All: library.games?.length ?? 0,
+    'With Cards': summaryCounts.withCards,
+    'Without Cards': summaryCounts.withoutCards,
+    ...(library.cardDataAvailable ? { 'Drops Remaining': summaryCounts.dropsRemaining, 'Drops Exhausted': summaryCounts.dropsExhausted } : {}),
+  };
   const idleCandidateDrops = idleCandidates.reduce((sum, game) => sum + game.remainingDrops, 0);
 
   const runIdle = async (action) => {
@@ -291,6 +314,13 @@ export default function TradingCards() {
                 <p className="trading-monitor-kicker">{t('trading.idleTitle')}</p>
                 <strong>{idle.state === 'completed' ? t('trading.idleCompleted') : idleCandidates.length ? t('trading.idleReady', { games: idleCandidates.length, drops: idleCandidateDrops }) : t('trading.idleNothing')}</strong>
                 <span>{t('trading.idleExplain')}</span>
+                {idle.state !== 'completed' && idleCandidates.length > 0 && (
+                  <ul className="trading-idle-preview">
+                    {idleCandidates.map((game) => (
+                      <li key={game.appId}><strong>{game.name}</strong><b>{game.remainingDrops}</b></li>
+                    ))}
+                  </ul>
+                )}
               </div>
               <button type="button" className="btn-primary" disabled={idleBusy || !idleCandidates.length || monitor.state === 'monitoring' || monitor.state === 'paused'} onClick={startIdle}><Play size={15} /> {t('trading.idleStart')}</button>
             </div>
@@ -330,10 +360,10 @@ export default function TradingCards() {
               </label>
               <div className="trading-filter-group" role="group" aria-label={t('trading.filters')}>
                 {TRADING_CARD_FILTERS.map((entry) => (
-                  <button key={entry} type="button" className={filter === entry ? 'active' : ''} onClick={() => setFilter(entry)}>{t(TRADING_FILTER_KEYS[entry] || 'trading.filterAll')}</button>
+                  <button key={entry} type="button" className={filter === entry ? 'active' : ''} onClick={() => chooseFilter(entry)}>{t(TRADING_FILTER_KEYS[entry] || 'trading.filterAll')}{filterCounts[entry] !== undefined && <span className="trading-filter-count">{filterCounts[entry]}</span>}</button>
                 ))}
               </div>
-              <select value={sort} onChange={(event) => setSort(event.target.value)} aria-label={t('trading.sort')}>
+              <select value={sort} onChange={(event) => chooseSort(event.target.value)} aria-label={t('trading.sort')}>
                 <option value="recent">{t('trading.recentlySelected')}</option>
                 <option value="drops">{t('trading.dropsRemaining')}</option>
                 <option value="alphabetical">{t('trading.alphabetical')}</option>
@@ -366,6 +396,9 @@ export default function TradingCards() {
                     <img src={game.headerImage} alt="" onError={(event) => { event.currentTarget.style.display = 'none'; }} />
                     <div className="trading-game-copy">
                       <strong title={game.name}>{game.name}</strong>
+                      {game.dropStatus === 'remaining' && Number.isInteger(game.remainingDrops) && (
+                        <b className="trading-drops-count" aria-label={t('trading.dropsRemainingDetail', { count: game.remainingDrops })}>{game.remainingDrops}<i>{t('trading.cardsShort')}</i></b>
+                      )}
                       <span className={`trading-status-pill ${state.tone}`}>{t(state.labelKey)}</span>
                       <small>{t(state.detailKey, { count: game.remainingDrops })}</small>
                       {monitored && <em>{t('trading.currentlyMonitoring')}</em>}

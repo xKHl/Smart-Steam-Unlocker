@@ -225,3 +225,17 @@ test('A game badge proves Trading Cards even without drop counts, and such games
   assert.ok(validatePersistedMonitor(monitor));
   assert.throws(() => startMonitor({ appId: 42, gameName: 'Badge Game', remainingDrops: 0, now: 1_000 }));
 });
+
+test('after a complete badges-page read, games with cards missing from it count as having no drops left', () => {
+  const { applyCompleteCommunityDrops } = require('../electron/tradingCards/cardClassification');
+  const games = classifyTradingCardLibrary(
+    [{ appId: 1, name: 'Listed' }, { appId: 2, name: 'Not listed' }, { appId: 3, name: 'No cards' }],
+    { eligibilityByAppId: new Map([[1, true], [2, true], [3, false]]), badgeRecords: [{ appId: 1, remainingDrops: 3 }] },
+  );
+  const [listed, missing, noCards] = applyCompleteCommunityDrops(games);
+  assert.equal(listed.dropStatus, DROP_STATUS.REMAINING);
+  assert.equal(listed.remainingDrops, 3);
+  assert.equal(missing.dropStatus, DROP_STATUS.EXHAUSTED);
+  assert.equal(missing.isEligibleForLaunch, false);
+  assert.equal(noCards.dropStatus, DROP_STATUS.NOT_APPLICABLE);
+});

@@ -101,6 +101,17 @@ function classifyTradingCardLibrary(games, { eligibilityByAppId = new Map(), bad
     .filter(Boolean);
 }
 
+/**
+ * The signed-in badges page lists every game that still has card drops. After
+ * all of its pages were read, a game with cards that is missing from it has
+ * no drops left, so its unknown drop state becomes exhausted.
+ */
+function applyCompleteCommunityDrops(games) {
+  return (Array.isArray(games) ? games : []).map((game) => (game?.eligibility === CARD_ELIGIBILITY.WITH_CARDS && game?.dropStatus === DROP_STATUS.UNAVAILABLE
+    ? { ...game, dropStatus: DROP_STATUS.EXHAUSTED, remainingDrops: null, isEligibleForLaunch: false }
+    : game));
+}
+
 function summarizeTradingCardLibrary(games) {
   const summary = {
     totalGames: 0,
@@ -134,4 +145,5 @@ module.exports = {
   classifyTradingCardGame,
   classifyTradingCardLibrary,
   summarizeTradingCardLibrary,
+  applyCompleteCommunityDrops,
 };

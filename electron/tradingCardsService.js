@@ -11,6 +11,7 @@ const {
   DROP_STATUS,
   classifyTradingCardLibrary,
   summarizeTradingCardLibrary,
+  applyCompleteCommunityDrops,
 } = require('./tradingCards/cardClassification');
 const {
   MONITOR_STATE,
@@ -237,11 +238,15 @@ async function getLibrary({ forceRefresh = false } = {}) {
       storeResult.eligibilityByAppId.forEach((eligible, appId) => storeEligibilityCache.set(appId, eligible));
       if (storeResult.eligibilityByAppId.size) saveStoreCache();
     }
-    const games = classifyTradingCardLibrary(ownedGames, {
+    const classified = classifyTradingCardLibrary(ownedGames, {
       eligibilityByAppId: storeEligibilityCache,
       badgeRecords: dropRecords,
       cardBadgeAppIds: badgeResult.success ? badgeResult.cardBadgeAppIds : [],
     });
+    // The signed-in badges page lists every game that still has card drops, so
+    // once all of its pages were read, a game with cards that is missing from it
+    // has none left.
+    const games = communityResult.success ? applyCompleteCommunityDrops(classified) : classified;
     // Drop counts exist only when Steam explicitly returned them; the Web API
     // badge endpoint normally does not, so the UI must not show zeros as facts.
     const result = {
