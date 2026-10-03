@@ -243,6 +243,19 @@ function registerIpcHandlers() {
   registerHandler('trading-cards:community-status', () => tradingCardsService.communityStatus());
   registerHandler('trading-cards:community-sign-in', (event) => tradingCardsService.communitySignIn(BrowserWindow.fromWebContents(event.sender)));
   registerHandler('trading-cards:community-sign-out', () => tradingCardsService.communitySignOut());
+  // Card idling: optional list of validated App IDs (default: every game with drops left).
+  registerHandler('trading-cards:idle-start', (_e, rawAppIds) => {
+    const appIds = Array.isArray(rawAppIds) ? rawAppIds.slice(0, 64).map((value) => assertAppId(value)) : null;
+    // Error codes do not survive Electron's IPC error serialisation, so a
+    // refused start is returned as data the renderer can localise.
+    return tradingCardsService.idleStart({ appIds }).catch((error) => ({
+      ...tradingCardsService.idleStatus(),
+      errorCode: error?.code || 'IDLE_START_FAILED',
+    }));
+  });
+  registerHandler('trading-cards:idle-stop', (_e, rawAppId) => tradingCardsService.idleStop(rawAppId === undefined || rawAppId === null ? null : assertAppId(rawAppId)));
+  registerHandler('trading-cards:idle-status', () => tradingCardsService.idleStatus());
+  registerHandler('trading-cards:idle-refresh', () => tradingCardsService.refreshIdle());
 
   // ─── Legacy Timer (existing instant behavior) ─────────────────────────────
   const timerService = require('../timerService');

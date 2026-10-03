@@ -2887,3 +2887,24 @@ html[lang='ar'] body * {
 }
 .btn-primary:hover:not(:disabled) { transform: translateY(-1px); box-shadow: 0 6px 20px rgba(124, 58, 237, 0.45); }
 .btn-primary:disabled { opacity: 0.55; cursor: not-allowed; box-shadow: none; }
+
+/* Trading Cards: card idling panel. */
+.trading-idle-panel { margin: 0 0 16px; padding: 16px 18px; border: 1px solid #39354b; border-radius: 14px; background: #15151d; }
+.trading-idle-panel.running { border-color: rgba(74, 222, 128, 0.4); background: linear-gradient(100deg, rgba(34, 197, 94, 0.1), #15151d); }
+.trading-idle-panel.completed { border-color: rgba(43, 185, 121, 0.42); }
+.trading-idle-head { display: flex; align-items: center; justify-content: space-between; gap: 16px; }
+.trading-idle-head strong, .trading-idle-head span { display: block; }
+.trading-idle-head strong { margin: 3px 0 4px; font-size: 14px; color: var(--text-primary); }
+.trading-idle-head span { max-width: 620px; color: #b9b4c7; font-size: 12px; line-height: 1.55; }
+.trading-idle-actions { display: flex; flex-wrap: wrap; gap: 8px; flex-shrink: 0; }
+.trading-idle-actions button { display: inline-flex; align-items: center; gap: 6px; }
+.trading-idle-list { display: grid; grid-template-columns: repeat(auto-fill, minmax(230px, 1fr)); gap: 8px; margin: 14px 0 10px; padding: 0; list-style: none; }
+.trading-idle-list li { display: grid; grid-template-columns: auto minmax(0, 1fr) auto; grid-template-rows: auto auto; column-gap: 9px; align-items: center; padding: 9px 10px; border: 1px solid #2a2735; border-radius: 10px; background: #17161e; }
+.trading-idle-list strong { overflow: hidden; color: #ded9e9; font-size: 12px; text-overflow: ellipsis; white-space: nowrap; }
+.trading-idle-list small { grid-column: 2; color: #63d7a0; font-size: 11px; }
+.trading-idle-dot { grid-row: 1 / span 2; width: 8px; height: 8px; border-radius: 50%; background: #6b7280; }
+.trading-idle-dot.on { background: var(--steam-green); box-shadow: 0 0 8px var(--steam-green-glow); animation: pulse-green 2.5s ease-in-out infinite; }
+.trading-idle-game-stop { grid-column: 3; grid-row: 1 / span 2; display: flex; align-items: center; justify-content: center; width: 26px; height: 26px; color: var(--text-muted); background: transparent; border: 1px solid transparent; border-radius: 6px; cursor: pointer; }
+.trading-idle-game-stop:hover:not(:disabled) { color: #fca5a5; border-color: rgba(248, 113, 113, 0.35); }
+.trading-idle-note { display: block; color: #858096; font-size: 11px; line-height: 1.5; }
+.trading-idle-list small.is-error { color: #fca5a5; }

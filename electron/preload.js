@@ -96,6 +96,15 @@ contextBridge.exposeInMainWorld('steamAPI', {
     communityStatus: () => ipcRenderer.invoke('trading-cards:community-status'),
     communitySignIn: () => ipcRenderer.invoke('trading-cards:community-sign-in'),
     communitySignOut: () => ipcRenderer.invoke('trading-cards:community-sign-out'),
+    idleStart: (appIds) => ipcRenderer.invoke('trading-cards:idle-start', appIds),
+    idleStop: (appId) => ipcRenderer.invoke('trading-cards:idle-stop', appId),
+    idleStatus: () => ipcRenderer.invoke('trading-cards:idle-status'),
+    idleRefresh: () => ipcRenderer.invoke('trading-cards:idle-refresh'),
+    onIdleUpdate: (cb) => {
+      const listener = (_e, status) => cb(status);
+      ipcRenderer.on('trading-cards:idle-update', listener);
+      return () => ipcRenderer.removeListener('trading-cards:idle-update', listener);
+    },
     onUpdate: (cb) => {
       const listener = (_e, status) => cb(status);
       ipcRenderer.on('trading-cards:update', listener);

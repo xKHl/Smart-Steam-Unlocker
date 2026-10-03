@@ -151,6 +151,8 @@ app.whenReady().then(async () => {
 });
 
 app.on('window-all-closed', () => {
+  // Stop every card-idle game so nothing stays "in game" in Steam after exit.
+  try { require('./tradingCardsService').shutdownIdle(); } catch { /* not started */ }
   // Gracefully tear down the Steamworks client before quitting
   shutdown();
   if (process.platform !== 'darwin') app.quit();

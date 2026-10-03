@@ -83,6 +83,8 @@ export default function TradingCards() {
   const [loading, setLoading] = useState(true);
   const [actionBusy, setActionBusy] = useState(false);
   const [communityBusy, setCommunityBusy] = useState(false);
+  const [idle, setIdle] = useState({ state: 'inactive', games: [], finished: [], totalRemainingDrops: 0 });
+  const [idleBusy, setIdleBusy] = useState(false);
   const [notice, setNotice] = useState(null);
   const [, setClock] = useState(0);
 
@@ -110,6 +112,21 @@ export default function TradingCards() {
     });
     return () => unsubscribe?.();
   }, [load]);
+
+  useEffect(() => {
+    window.steamAPI?.tradingCards.idleStatus?.().then((status) => { if (status) setIdle(status); }).catch(() => {});
+    const unsubscribe = window.steamAPI?.tradingCards.onIdleUpdate?.((status) => {
+      setIdle(status);
+      if (status?.state === 'completed') load({ forceRefresh: true });
+    });
+    return () => unsubscribe?.();
+  }, [load]);
+
+  useEffect(() => {
+    if (idle.state !== 'running') return undefined;
+    const interval = setInterval(() => setClock((value) => value + 1), 1000);
+    return () => clearInterval(interval);
+  }, [idle.state]);
 
   useEffect(() => {
     if (monitor.state !== 'monitoring') return undefined;
@@ -176,6 +193,31 @@ export default function TradingCards() {
     }
   };
 
+  const idleCandidates = (library.games || []).filter((game) => game.dropStatus === 'remaining' && game.remainingDrops > 0);
+  const idleCandidateDrops = idleCandidates.reduce((sum, game) => sum + game.remainingDrops, 0);
+
+  const runIdle = async (action) => {
+    setIdleBusy(true);
+    setNotice(null);
+    try {
+      const status = await action();
+      if (status?.errorCode) setNotice({ tone: 'error', text: localizeError(t, locale, status, 'trading.couldNotComplete') });
+      if (status) setIdle(status);
+    } catch (error) {
+      setNotice({ tone: 'error', text: localizeError(t, locale, error, 'trading.couldNotComplete') });
+    } finally {
+      setIdleBusy(false);
+    }
+  };
+  const startIdle = () => runIdle(() => window.steamAPI?.tradingCards.idleStart());
+  const stopIdle = () => runIdle(async () => {
+    const status = await window.steamAPI?.tradingCards.idleStop();
+    await load({ forceRefresh: true });
+    return status;
+  });
+  const stopIdleGame = (appId) => runIdle(() => window.steamAPI?.tradingCards.idleStop(appId));
+  const refreshIdle = () => runIdle(() => window.steamAPI?.tradingCards.idleRefresh());
+
   const startMonitor = () => runAction(async () => {
     const result = await window.steamAPI?.tradingCards.start(selectedGame.appId);
     setNotice({ tone: 'info', text: t('trading.launchRequestedNotice') });
@@ -215,6 +257,46 @@ export default function TradingCards() {
         <SummaryCard label={t('trading.dropsRemaining')} value={library.cardDataAvailable ? summary.dropsRemaining : '—'} tone="green" />
         <SummaryCard label={t('trading.dropsExhausted')} value={library.cardDataAvailable ? summary.dropsExhausted : '—'} />
       </div>
+
+      {library.success && library.community?.connected && (
+        <section className={`trading-idle-panel ${idle.state}`} aria-label={t('trading.idleTitle')}>
+          {idle.state === 'running' ? (
+            <>
+              <div className="trading-idle-head">
+                <div>
+                  <p className="trading-monitor-kicker">{t('trading.idleTitle')}</p>
+                  <strong>{t('trading.idleRunning', { games: idle.games.length, drops: idle.totalRemainingDrops })}</strong>
+                  <span>{t('trading.idleElapsed', { duration: formatDuration(idle.startedAt ? Date.now() - idle.startedAt : 0, t) })}</span>
+                </div>
+                <div className="trading-idle-actions">
+                  <button type="button" className="btn-secondary" disabled={idleBusy} onClick={refreshIdle}>{t('trading.idleRefresh')}</button>
+                  <button type="button" className="btn-danger" disabled={idleBusy} onClick={stopIdle}><Square size={14} /> {t('trading.idleStop')}</button>
+                </div>
+              </div>
+              <ul className="trading-idle-list">
+                {idle.games.map((game) => (
+                  <li key={game.appId}>
+                    <span className={`trading-idle-dot ${game.running ? 'on' : 'off'}`} aria-hidden="true" />
+                    <strong>{game.name}</strong>
+                    <small className={game.error ? 'is-error' : ''}>{game.error ? t('trading.idleGameError') : t('trading.dropsRemainingDetail', { count: game.remainingDrops })}</small>
+                    <button type="button" className="trading-idle-game-stop" disabled={idleBusy} onClick={() => stopIdleGame(game.appId)} aria-label={t('trading.idleStopGame', { game: game.name })}><Square size={12} /></button>
+                  </li>
+                ))}
+              </ul>
+              <small className="trading-idle-note">{t('trading.idleNote')}</small>
+            </>
+          ) : (
+            <div className="trading-idle-head">
+              <div>
+                <p className="trading-monitor-kicker">{t('trading.idleTitle')}</p>
+                <strong>{idle.state === 'completed' ? t('trading.idleCompleted') : idleCandidates.length ? t('trading.idleReady', { games: idleCandidates.length, drops: idleCandidateDrops }) : t('trading.idleNothing')}</strong>
+                <span>{t('trading.idleExplain')}</span>
+              </div>
+              <button type="button" className="btn-primary" disabled={idleBusy || !idleCandidates.length || monitor.state === 'monitoring' || monitor.state === 'paused'} onClick={startIdle}><Play size={15} /> {t('trading.idleStart')}</button>
+            </div>
+          )}
+        </section>
+      )}
 
       {activeMonitorCopy && (
         <div className={`trading-monitor-banner ${activeMonitorCopy.tone}`} role="status">

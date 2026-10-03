@@ -4,6 +4,8 @@ const credentialStore = require('./credentialStore');
 const steamManager = require('./steamManager');
 const { createStoreMetadataClient } = require('./tradingCards/storeMetadataClient');
 const { createCommunityBadgesClient } = require('./tradingCards/communityBadges');
+const { createIdleManager, selectIdleCandidates } = require('./tradingCards/idleManager');
+const path = require('path');
 const {
   CARD_ELIGIBILITY,
   DROP_STATUS,
@@ -104,6 +106,83 @@ function saveStoreCache() {
   } catch {
     // The in-memory cache still serves this session.
   }
+}
+
+const IDLE_REFRESH_MS = 5 * 60 * 1000;
+let idleRefreshTimer = null;
+
+function emitIdleUpdate(payload) {
+  BrowserWindow.getAllWindows().forEach((win) => win.webContents.send('trading-cards:idle-update', payload));
+}
+
+// One forked Node-mode process per idled game (see idleWorker.js).
+function spawnIdleWorker(appId, { onExit, onError }) {
+  const { fork } = require('child_process');
+  const child = fork(path.join(__dirname, 'tradingCards', 'idleWorker.js'), [String(appId)], {
+    env: { ...process.env, ELECTRON_RUN_AS_NODE: '1', SteamAppId: String(appId), SteamGameId: String(appId) },
+    stdio: ['ignore', 'ignore', 'ignore', 'ipc'],
+    windowsHide: true,
+  });
+  child.on('message', (message) => {
+    if (message?.type === 'error') onError(message.error);
+  });
+  child.on('error', (error) => onError(error?.message || 'WORKER_ERROR'));
+  child.on('exit', (code) => onExit(code ?? 0));
+  return {
+    stop() {
+      if (child.connected) child.send({ type: 'stop' });
+      setTimeout(() => { if (child.exitCode === null) child.kill(); }, 2_000).unref?.();
+    },
+  };
+}
+
+const idleManager = createIdleManager({ spawnWorker: spawnIdleWorker, onChange: emitIdleUpdate });
+
+function stopIdleRefresh() {
+  if (idleRefreshTimer) clearInterval(idleRefreshTimer);
+  idleRefreshTimer = null;
+}
+
+async function refreshIdle() {
+  if (!idleManager.isRunning()) return idleManager.status();
+  const library = await getLibrary({ forceRefresh: true });
+  if (library.success && library.community?.connected) idleManager.applyLibrary(library.games);
+  if (!idleManager.isRunning()) stopIdleRefresh();
+  return idleManager.status();
+}
+
+async function idleStart({ appIds = null } = {}) {
+  if (monitor.state === MONITOR_STATE.MONITORING || monitor.state === MONITOR_STATE.PAUSED) {
+    throw Object.assign(new Error('Stop the launch monitor before card idling.'), { code: 'TRADING_CARD_MONITOR_ACTIVE' });
+  }
+  const library = await getLibrary({ forceRefresh: true });
+  if (!library.success) throw Object.assign(new Error('Trading Card data is unavailable.'), { code: library.errorCode || 'CARD_DATA_UNAVAILABLE' });
+  // Without the signed-in badge page there is no way to know when a game is
+  // finished, so idling could run forever; require it.
+  if (!library.community?.connected) throw Object.assign(new Error('Sign in to Steam Community first.'), { code: 'COMMUNITY_REQUIRED' });
+  const candidates = selectIdleCandidates(library.games, { appIds });
+  if (!candidates.length) throw Object.assign(new Error('No games have card drops remaining.'), { code: 'NO_DROPS_REMAINING' });
+
+  const status = idleManager.start(candidates);
+  stopIdleRefresh();
+  idleRefreshTimer = setInterval(() => { refreshIdle().catch(() => {}); }, IDLE_REFRESH_MS);
+  idleRefreshTimer.unref?.();
+  return status;
+}
+
+function idleStop(appId = null) {
+  const status = appId ? idleManager.stopGame(appId) : idleManager.stopAll();
+  if (!idleManager.isRunning()) stopIdleRefresh();
+  return status;
+}
+
+function idleStatus() {
+  return idleManager.status();
+}
+
+function shutdownIdle() {
+  stopIdleRefresh();
+  idleManager.stopAll({ silent: true });
 }
 
 // The Electron-bound session module is loaded lazily so pure modules and
@@ -219,6 +298,9 @@ async function refreshActiveMonitor() {
 async function start({ appId, launchGame }) {
   if (!Number.isInteger(appId) || appId <= 0) throw Object.assign(new Error('A valid App ID is required.'), { code: 'INVALID_APP_ID' });
   if (typeof launchGame !== 'function') throw Object.assign(new Error('A Steam launch function is required.'), { code: 'LAUNCH_UNAVAILABLE' });
+  if (idleManager.isRunning()) {
+    throw Object.assign(new Error('Stop card idling before starting the launch monitor.'), { code: 'CARD_IDLE_ACTIVE' });
+  }
   if (![MONITOR_STATE.INACTIVE, MONITOR_STATE.COMPLETED].includes(monitor.state)) {
     throw Object.assign(new Error('Only one Trading Card monitor can be active at a time.'), { code: 'TRADING_CARD_MONITOR_ACTIVE' });
   }
@@ -328,6 +410,11 @@ module.exports = {
   stop,
   communityStatus,
   communitySignIn,
+  idleStart,
+  idleStop,
+  idleStatus,
+  refreshIdle,
+  shutdownIdle,
   communitySignOut,
   resetForTests,
 };
